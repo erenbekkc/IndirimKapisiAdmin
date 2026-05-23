@@ -45,12 +45,5 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-		<string>remote-notification</string>
-	</array>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>Bu uygulama size daha alakalı içerik sunmak için cihaz kimliğinizi kullanır.</string>
 </dict>
 </plist>
