@@ -73,11 +73,11 @@ jobs:
         run: |
           find ios -name "*.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = .*/IPHONEOS_DEPLOYMENT_TARGET = 14.0;/g' {} \;
 
-      - name: Flutter pub get + iOS build
+      - name: Flutter pub get + generate iOS config
         run: |
           flutter config --no-enable-swift-package-manager
           flutter pub get
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign || true
 
       - name: Remove broken asset catalogs from DK pods
         run: |
