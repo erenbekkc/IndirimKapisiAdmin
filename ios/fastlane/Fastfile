@@ -83,10 +83,6 @@ platform :ios do
       }
     )
 
-    upload_to_testflight(
-      api_key: api_key,
-      skip_waiting_for_build_processing: true,
-      apple_id: "6772487222",
-    )
+    sh("xcrun altool --upload-app -f #{lane_context[SharedValues::IPA_OUTPUT_PATH]} -t ios --apiKey #{ENV['ASC_KEY_ID']} --apiIssuer #{ENV['ASC_ISSUER_ID']} --apiKey-path #{key_file}")
   end
 end
