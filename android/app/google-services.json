@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "90896881699",
+    "project_id": "indirim-takip-71bc8",
+    "storage_bucket": "indirim-takip-71bc8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:90896881699:android:a12ead6ae5328c98df7996",
+        "android_client_info": {
+          "package_name": "com.alp.indirim_radari"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtZfvhn2bzNXZiFA-oQ5f5jTLFVlRnJTQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:90896881699:android:b0e131c0872616b7df7996",
+        "android_client_info": {
+          "package_name": "com.alp.indirim_radari_admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtZfvhn2bzNXZiFA-oQ5f5jTLFVlRnJTQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

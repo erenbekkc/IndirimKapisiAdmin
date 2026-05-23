@@ -1,0 +1,83 @@
+require 'base64'
+
+default_platform(:ios)
+
+platform :ios do
+  lane :build_and_upload do
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_content: Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"]),
+    )
+
+    keychain_name = "build.keychain"
+    keychain_password = "build_password"
+    keychain_path = "#{Dir.home}/Library/Keychains/#{keychain_name}-db"
+
+    create_keychain(
+      name: keychain_name,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false
+    )
+
+    UI.message("Deleting old Distribution certificates...")
+    require 'spaceship'
+    all_certs = Spaceship::ConnectAPI::Certificate.all
+    dist_certs = all_certs.reject { |c| c.certificate_type.to_s.include?("DEVELOPMENT") }
+    UI.message("Found #{dist_certs.count} distribution certificate(s) to delete")
+    dist_certs.each do |cert|
+      UI.message("Deleting: #{cert.id} (#{cert.certificate_type})")
+      cert.delete!
+    end
+
+    cert(
+      api_key: api_key,
+      output_path: "/tmp/certs",
+      keychain_path: keychain_path,
+      keychain_password: keychain_password,
+    )
+
+    sigh(
+      api_key: api_key,
+      app_identifier: "com.alp.indirimRadariAdmin",
+      output_path: "/tmp/profiles",
+      force: true,
+    )
+
+    profile_uuid = lane_context[SharedValues::SIGH_UUID]
+    profile_name = lane_context[SharedValues::SIGH_NAME]
+
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "Runner.xcodeproj",
+      team_id: "8J5Q5D5DB9",
+      bundle_identifier: "com.alp.indirimRadariAdmin",
+      code_sign_identity: "iPhone Distribution",
+      profile_uuid: profile_uuid,
+    )
+
+    build_app(
+      workspace: "Runner.xcworkspace",
+      scheme: "Runner",
+      configuration: "Release",
+      export_method: "app-store",
+      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=8J5Q5D5DB9 PROVISIONING_PROFILE='#{profile_uuid}' CODE_SIGN_IDENTITY='iPhone Distribution' CODE_SIGN_ENTITLEMENTS=Runner/Runner.entitlements",
+      export_options: {
+        method: "app-store",
+        teamID: "8J5Q5D5DB9",
+        signingStyle: "manual",
+        provisioningProfiles: {
+          "com.alp.indirimRadariAdmin" => profile_name
+        }
+      }
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
