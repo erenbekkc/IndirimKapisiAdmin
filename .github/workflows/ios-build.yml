@@ -83,6 +83,10 @@ jobs:
           cd ios
           pod install --repo-update
 
+      - name: Remove DKPhotoGallery broken asset catalog
+        run: |
+          find ios/Pods/DKPhotoGallery -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
+
       - name: Install Fastlane
         run: gem install fastlane --no-document
 
