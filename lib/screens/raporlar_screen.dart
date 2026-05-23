@@ -151,8 +151,8 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
           // Yeni: reklam görüntüleme (toplam + oturum başı ortalama)
           'androidAds': aAds,
           'iosAds': iAds,
-          'androidAvgAds': androidSess.isNotEmpty ? (aAds / androidSess.length) : 0.0,
-          'iosAvgAds': iosSess.isNotEmpty ? (iAds / iosSess.length) : 0.0,
+          'androidAvgAds': (data['androidOpens'] as num?)?.toInt() != null && (data['androidOpens'] as num).toInt() > 0 ? (aAds / (data['androidOpens'] as num).toInt()) : 0.0,
+          'iosAvgAds': (data['iosOpens'] as num?)?.toInt() != null && (data['iosOpens'] as num).toInt() > 0 ? (iAds / (data['iosOpens'] as num).toInt()) : 0.0,
         });
       }
 
