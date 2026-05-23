@@ -69,11 +69,15 @@ jobs:
         run: |
           find ios -name "*.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = .*/IPHONEOS_DEPLOYMENT_TARGET = 14.0;/g' {} \;
 
-      - name: Flutter pub get + iOS build
+      - name: Flutter pub get
         run: |
           flutter config --no-enable-swift-package-manager
           flutter pub get
-          flutter build ios --release --no-codesign
+
+      - name: Pod install
+        run: |
+          cd ios
+          pod install --repo-update
 
       - name: Install Fastlane
         run: gem install fastlane --no-document
