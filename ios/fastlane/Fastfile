@@ -40,14 +40,6 @@ platform :ios do
       keychain_password: keychain_password,
     )
 
-    produce(
-      api_key: api_key,
-      app_identifier: "com.alp.indirimRadariAdmin",
-      app_name: "Indirim Kapisi Admin",
-      team_id: "8J5Q5D5DB9",
-      skip_itc: true,
-    )
-
     sigh(
       api_key: api_key,
       app_identifier: "com.alp.indirimRadariAdmin",
