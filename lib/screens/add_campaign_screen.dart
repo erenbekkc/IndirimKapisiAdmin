@@ -168,6 +168,39 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
       return;
     }
 
+    // Mükerrer kampanya kontrolü (sadece yeni kayıtta)
+    if (widget.campaignDoc == null) {
+      final productName = _productController.text.trim().toLowerCase();
+      final draftsSnap = await FirebaseFirestore.instance
+          .collection('catalog_drafts')
+          .where('marketId', isEqualTo: _selectedMarketId)
+          .get();
+      final campaignsSnap = await FirebaseFirestore.instance
+          .collection('campaigns')
+          .where('marketId', isEqualTo: _selectedMarketId)
+          .get();
+
+      bool duplicate = false;
+      for (final doc in [...draftsSnap.docs, ...campaignsSnap.docs]) {
+        final data = doc.data();
+        final existingProduct = ((data['productName'] ?? data['product'] ?? '') as String).toLowerCase();
+        if (existingProduct != productName) continue;
+        final existingStart = (data['startDate'] as Timestamp?)?.toDate();
+        final existingEnd = (data['endDate'] as Timestamp?)?.toDate();
+        if (existingStart == null || existingEnd == null) continue;
+        // Tarih aralığı çakışıyor mu?
+        if (_startDate!.isBefore(existingEnd) && _endDate!.isAfter(existingStart)) {
+          duplicate = true;
+          break;
+        }
+      }
+
+      if (duplicate) {
+        _showError('Bu market için aynı ürünle çakışan tarihli bir kampanya zaten mevcut');
+        return;
+      }
+    }
+
     setState(() => _loading = true);
     try {
       // Fotoğraf yükle (varsa)
