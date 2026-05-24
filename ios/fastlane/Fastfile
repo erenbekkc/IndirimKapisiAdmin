@@ -75,34 +75,9 @@ platform :ios do
       }
     )
 
-    # p8 dosyası workflow'da bash ile yazıldı (~/.appstoreconnect/private_keys/)
-    # xcodebuild native upload kullanıyoruz (altool Xcode 26'da bozuk)
-    archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
-    key_id = ENV['ASC_KEY_ID']
-    issuer_id = ENV['ASC_ISSUER_ID']
-    key_file = "#{Dir.home}/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8"
-
-    File.write('/tmp/UploadOptions.plist', <<~PLIST)
-      <?xml version="1.0" encoding="UTF-8"?>
-      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-      <plist version="1.0">
-      <dict>
-          <key>method</key>
-          <string>app-store</string>
-          <key>destination</key>
-          <string>upload</string>
-          <key>teamID</key>
-          <string>8J5Q5D5DB9</string>
-          <key>signingStyle</key>
-          <string>manual</string>
-          <key>provisioningProfiles</key>
-          <dict>
-              <key>com.alp.indirimRadariAdmin</key>
-              <string>#{profile_name}</string>
-          </dict>
-      </dict>
-      PLIST
-
-    sh("xcodebuild -exportArchive -archivePath '#{archive_path}' -exportOptionsPlist /tmp/UploadOptions.plist -exportPath /tmp/upload -authenticationKeyPath '#{key_file}' -authenticationKeyID '#{key_id}' -authenticationKeyIssuerID '#{issuer_id}' -allowProvisioningUpdates 2>&1")
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+    )
   end
 end
