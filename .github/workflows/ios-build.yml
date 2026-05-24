@@ -110,10 +110,13 @@ jobs:
           # Statik plist'i doğrula
           plutil -lint ios/ExportOptions.plist && echo "Plist OK"
 
+          KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
           xcodebuild -exportArchive \
             -archivePath "$ARCHIVE" \
             -exportOptionsPlist ios/ExportOptions.plist \
             -exportPath /tmp/upload \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            -authenticationKeyPath "$KEY_PATH" \
             -allowProvisioningUpdates
