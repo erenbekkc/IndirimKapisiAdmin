@@ -80,19 +80,10 @@ jobs:
           find ios/Pods/DKPhotoGallery -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
           find ios/Pods/DKImagePickerController -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
 
-      - name: Write API Key
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
-        run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$ASC_PRIVATE_KEY_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-
       - name: Install Fastlane
         run: gem install fastlane --no-document
 
-      - name: Build & Upload via Fastlane
+      - name: Build via Fastlane
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -100,3 +91,29 @@ jobs:
         run: |
           cd ios
           fastlane build_and_upload
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+        run: |
+          # p8 key'i doğrudan yaz (secret raw PEM, base64 decode gerekmez)
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$ASC_PRIVATE_KEY_B64" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+          # Archive'i bul
+          ARCHIVE=$(find ~/Library/Developer/Xcode/Archives -name "*.xcarchive" | sort | tail -1)
+          echo "Archive: $ARCHIVE"
+
+          # Statik plist'i doğrula
+          plutil -lint ios/ExportOptions.plist && echo "Plist OK"
+
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath /tmp/upload \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            -allowProvisioningUpdates
