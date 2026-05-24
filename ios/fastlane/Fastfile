@@ -4,16 +4,10 @@ default_platform(:ios)
 
 platform :ios do
   lane :build_and_upload do
-    key_file = "/tmp/AuthKey_#{ENV['ASC_KEY_ID']}.p8"
-    decoded = Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"])
-    decoded = decoded.gsub("\r\n", "\n").gsub("\r", "\n")
-    File.open(key_file, "wb") { |f| f.write(decoded) }
-
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
-      key_filepath: key_file,
-      in_house: false,
+      key_content: Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"]),
     )
 
     keychain_name = "build.keychain"
@@ -70,9 +64,7 @@ platform :ios do
       scheme: "Runner",
       configuration: "Release",
       export_method: "app-store",
-      sdk: "iphoneos",
-      destination: "generic/platform=iOS",
-      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=8J5Q5D5DB9 PROVISIONING_PROFILE='#{profile_uuid}' CODE_SIGN_IDENTITY='iPhone Distribution'",
+      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=8J5Q5D5DB9 PROVISIONING_PROFILE='#{profile_uuid}' CODE_SIGN_IDENTITY='iPhone Distribution' CODE_SIGN_ENTITLEMENTS=Runner/Runner.entitlements",
       export_options: {
         method: "app-store",
         teamID: "8J5Q5D5DB9",
@@ -83,6 +75,9 @@ platform :ios do
       }
     )
 
-    sh("xcrun altool --upload-app -f #{lane_context[SharedValues::IPA_OUTPUT_PATH]} -t ios --apiKey #{ENV['ASC_KEY_ID']} --apiIssuer #{ENV['ASC_ISSUER_ID']} --apiKey-path #{key_file}")
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true
+    )
   end
 end
