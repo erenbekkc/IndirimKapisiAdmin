@@ -565,7 +565,7 @@ Kurallar:
           'Accept': 'text/html',
           'Accept-Language': 'tr-TR,tr;q=0.9',
         },
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 8));
 
       if (initResp.statusCode != 200) return null;
 
@@ -581,7 +581,7 @@ Kurallar:
           'Referer': 'https://duckduckgo.com/',
           'Accept': 'application/json',
         },
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 8));
 
       if (imgResp.statusCode == 200) {
         final body    = jsonDecode(imgResp.body) as Map<String, dynamic>;
@@ -611,6 +611,33 @@ Kurallar:
     return null;
   }
 
+  Future<String?> _searchImageYandex(String query) async {
+    try {
+      final resp = await http.get(
+        Uri.parse('https://yandex.com/images/search?text=${Uri.encodeQueryComponent(query)}&itype=jpg'),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+          'Accept-Language': 'tr-TR,tr;q=0.9',
+          'Accept': 'text/html',
+        },
+      ).timeout(const Duration(seconds: 8));
+
+      if (resp.statusCode != 200) return null;
+
+      // Yandex sayfasında "url" içeren JSON bloklarından ilk geçerli resim URL'sini bul
+      final body = resp.body;
+      final matches = RegExp(r'"url"\s*:\s*"(https://[^"]+\.(?:jpg|jpeg|png|webp))"')
+          .allMatches(body);
+      for (final m in matches) {
+        final url = m.group(1);
+        if (url != null && !url.contains('yastatic') && !url.contains('yandex.')) {
+          return url;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // -----------------------------------------------------------------------
   // Edit bottom sheet
   // -----------------------------------------------------------------------
@@ -635,6 +662,7 @@ Kurallar:
     DateTime? endDate = draft.endDate;
     String? imageUrl = draft.productImageUrl;
     bool uploadingImage = false;
+    bool searchingImage = false;
 
     // Pre-fetch markets & categories
     final marketsSnap = await FirebaseFirestore.instance.collection('markets').orderBy('name').get();
@@ -754,6 +782,77 @@ Kurallar:
                                 SizedBox(height: 6),
                                 Text('Fotoğraf Ekle', style: TextStyle(color: Color(0xFF2563EB), fontSize: 13)),
                               ]),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Ürün Fotoğrafı Ara butonu
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: searchingImage || uploadingImage ? null : () async {
+                      final query = prodCtrl.text.trim();
+                      if (query.isEmpty) return;
+                      setS(() => searchingImage = true);
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text('"$query" için görsel aranıyor...'),
+                        duration: const Duration(seconds: 30),
+                        behavior: SnackBarBehavior.floating,
+                      ));
+                      try {
+                        String? found;
+                        String source = '';
+                        found = await _searchImageInCampaigns(query);
+                        if (found != null) {
+                          source = 'kampanya koleksiyonu';
+                        } else {
+                          found = await _searchImageDuckDuckGo(query);
+                          if (found != null) {
+                            source = 'DuckDuckGo';
+                          } else {
+                            found = await _searchImageYandex(query);
+                            if (found != null) source = 'Yandex';
+                          }
+                        }
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        final String msg;
+                        final Color msgColor;
+                        if (found != null) {
+                          setS(() => imageUrl = found);
+                          msg = 'Görsel bulundu ($source)';
+                          msgColor = const Color(0xFF16A34A);
+                        } else {
+                          msg = 'Görsel bulunamadı (kampanya, DuckDuckGo, Yandex denendi)';
+                          msgColor = Colors.orange;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(msg),
+                          backgroundColor: msgColor,
+                          behavior: SnackBarBehavior.floating,
+                          duration: const Duration(seconds: 4),
+                        ));
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text('Hata: $e'),
+                          backgroundColor: Colors.red,
+                          behavior: SnackBarBehavior.floating,
+                        ));
+                      } finally {
+                        setS(() => searchingImage = false);
+                      }
+                    },
+                    icon: searchingImage
+                        ? const SizedBox(width: 14, height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.image_search, size: 18),
+                    label: Text(searchingImage ? 'Aranıyor...' : 'Ürün Fotoğrafı Ara'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF2563EB),
+                      side: const BorderSide(color: Color(0xFF2563EB)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
