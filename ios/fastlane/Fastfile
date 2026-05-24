@@ -1,4 +1,5 @@
 require 'base64'
+require 'fileutils'
 
 default_platform(:ios)
 
@@ -75,9 +76,21 @@ platform :ios do
       }
     )
 
-    upload_to_testflight(
-      api_key: api_key,
-      skip_waiting_for_build_processing: true
-    )
+    # Fastlane'in içindeki eski altool Xcode 26 IPA formatını okuyamıyor.
+    # Xcode'un kendi iTMSTransporter'ını direkt kullanıyoruz.
+    key_id = ENV['ASC_KEY_ID']
+    issuer_id = ENV['ASC_ISSUER_ID']
+    ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH]
+
+    key_dir = File.expand_path("~/.appstoreconnect/private_keys")
+    FileUtils.mkdir_p(key_dir)
+    File.open("#{key_dir}/AuthKey_#{key_id}.p8", 'wb') do |f|
+      f.write(Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"]))
+    end
+
+    xcode_app_path = `xcode-select -p`.strip.gsub('/Contents/Developer', '')
+    transporter = "#{xcode_app_path}/Contents/itms/bin/iTMSTransporter"
+
+    sh("'#{transporter}' -m upload -f '#{ipa_path}' -apiKey '#{key_id}' -apiIssuer '#{issuer_id}'")
   end
 end
