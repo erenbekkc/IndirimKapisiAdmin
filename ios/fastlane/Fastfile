@@ -1,4 +1,5 @@
 require 'base64'
+require 'fileutils'
 
 default_platform(:ios)
 
@@ -75,15 +76,21 @@ platform :ios do
       }
     )
 
-    # p8 dosyasını Ruby ile yaz (Base64.decode64 kesin doğru — app_store_connect_api_key ile aynı yöntem)
-    archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
+    # p8 dosyasını standart konuma yaz — xcodebuild otomatik bulur, explicit path geçmiyoruz
     key_id = ENV['ASC_KEY_ID'].strip
     issuer_id = ENV['ASC_ISSUER_ID'].strip
     key_content = Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"])
-    key_file = "/tmp/AuthKey_#{key_id}.p8"
-    File.write(key_file, key_content)
+    # Unix satır sonu, BOM yok
+    key_content = key_content.gsub("\r\n", "\n").gsub("\r", "\n")
+
+    key_dir = "#{Dir.home}/.appstoreconnect/private_keys"
+    FileUtils.mkdir_p(key_dir)
+    key_file = "#{key_dir}/AuthKey_#{key_id}.p8"
+    File.open(key_file, 'wb') { |f| f.write(key_content) }
     File.chmod(0600, key_file)
-    UI.message("p8 key yazıldı: #{key_file} (#{key_content.length} bytes)")
+    UI.message("p8 yazıldı: #{key_file} (#{key_content.bytesize} bytes), ilk satır: #{key_content.lines.first&.strip}")
+
+    archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
 
     File.write('/tmp/UploadOptions.plist', <<~PLIST)
       <?xml version="1.0" encoding="UTF-8"?>
@@ -106,6 +113,7 @@ platform :ios do
       </dict>
       PLIST
 
-    sh("xcodebuild -exportArchive -archivePath '#{archive_path}' -exportOptionsPlist /tmp/UploadOptions.plist -exportPath /tmp/upload -authenticationKeyPath '#{key_file}' -authenticationKeyID '#{key_id}' -authenticationKeyIssuerID '#{issuer_id}' -allowProvisioningUpdates 2>&1")
+    # -authenticationKeyPath YOK — xcodebuild ~/.appstoreconnect/private_keys/ içinde otomatik arar
+    sh("xcodebuild -exportArchive -archivePath '#{archive_path}' -exportOptionsPlist /tmp/UploadOptions.plist -exportPath /tmp/upload -authenticationKeyID '#{key_id}' -authenticationKeyIssuerID '#{issuer_id}' -allowProvisioningUpdates 2>&1")
   end
 end
