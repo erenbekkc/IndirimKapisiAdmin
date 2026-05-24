@@ -1,5 +1,4 @@
 require 'base64'
-require 'fileutils'
 
 default_platform(:ios)
 
@@ -76,19 +75,12 @@ platform :ios do
       }
     )
 
-    # altool Xcode 26 IPA formatını okuyamıyor.
-    # xcodebuild native upload mekanizması kullanıyoruz.
+    # p8 dosyası workflow'da bash ile yazıldı (~/.appstoreconnect/private_keys/)
+    # xcodebuild native upload kullanıyoruz (altool Xcode 26'da bozuk)
     archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
     key_id = ENV['ASC_KEY_ID']
     issuer_id = ENV['ASC_ISSUER_ID']
-
-    key_dir = "#{Dir.home}/.appstoreconnect/private_keys"
-    FileUtils.mkdir_p(key_dir)
-    key_file = "#{key_dir}/AuthKey_#{key_id}.p8"
-    decoded = Base64.decode64(ENV['ASC_PRIVATE_KEY_B64'])
-    decoded = decoded.gsub("\r\n", "\n").gsub("\r", "\n").strip + "\n"
-    File.open(key_file, 'w') { |f| f.write(decoded) }
-    FileUtils.chmod(0600, key_file)
+    key_file = "#{Dir.home}/.appstoreconnect/private_keys/AuthKey_#{key_id}.p8"
 
     File.write('/tmp/UploadOptions.plist', <<~PLIST)
       <?xml version="1.0" encoding="UTF-8"?>

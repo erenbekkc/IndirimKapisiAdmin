@@ -80,6 +80,15 @@ jobs:
           find ios/Pods/DKPhotoGallery -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
           find ios/Pods/DKImagePickerController -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
 
+      - name: Write API Key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY_B64: ${{ secrets.ASC_PRIVATE_KEY_B64 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_PRIVATE_KEY_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
       - name: Install Fastlane
         run: gem install fastlane --no-document
 
