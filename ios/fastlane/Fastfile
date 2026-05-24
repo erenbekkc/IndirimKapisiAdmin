@@ -5,10 +5,18 @@ default_platform(:ios)
 
 platform :ios do
   lane :build_and_upload do
+    # Secret raw PEM veya base64-encoded olabilir — her ikisini destekle
+    _raw_secret = ENV["ASC_PRIVATE_KEY_B64"] || ""
+    _key_content = if _raw_secret.include?("-----BEGIN PRIVATE KEY-----")
+      _raw_secret  # raw PEM, doğrudan kullan
+    else
+      Base64.decode64(_raw_secret)  # base64-encoded, decode et
+    end
+
     api_key = app_store_connect_api_key(
       key_id: ENV["ASC_KEY_ID"],
       issuer_id: ENV["ASC_ISSUER_ID"],
-      key_content: Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"]),
+      key_content: _key_content,
     )
 
     keychain_name = "build.keychain"
@@ -80,8 +88,7 @@ platform :ios do
     key_id    = ENV['ASC_KEY_ID'].strip
     issuer_id = ENV['ASC_ISSUER_ID'].strip
 
-    raw_secret = ENV["ASC_PRIVATE_KEY_B64"] || ""
-    UI.user_error!("ASC_PRIVATE_KEY_B64 secret tanımlanmamış veya boş!") if raw_secret.strip.empty?
+    UI.user_error!("ASC_PRIVATE_KEY_B64 secret tanımlanmamış veya boş!") if _raw_secret.strip.empty?
 
     pem_header = "-----BEGIN PRIVATE KEY-----"
     pem_footer  = "-----END PRIVATE KEY-----"
@@ -90,13 +97,13 @@ platform :ios do
     #   Case 1 — raw PEM  : secret doğrudan "-----BEGIN PRIVATE KEY-----" içeriyor
     #   Case 2 — b64 PEM  : Base64.strict_decode64 → PEM içerik çıkıyor
     #   Case 3 — b64 DER  : Base64.strict_decode64 → raw DER binary → PEM wrapper ekle
-    key_pem = if raw_secret.include?(pem_header)
+    key_pem = if _raw_secret.include?(pem_header)
       # Case 1: raw PEM, olduğu gibi kullan
       UI.message("p8 format: raw PEM (base64 encode edilmemiş)")
-      raw_secret.strip + "\n"
+      _raw_secret.strip + "\n"
     else
       begin
-        decoded = Base64.strict_decode64(raw_secret.strip)
+        decoded = Base64.strict_decode64(_raw_secret.strip)
         if decoded.b.include?(pem_header.b)
           # Case 2: base64-encoded PEM
           UI.message("p8 format: base64 → PEM (#{decoded.bytesize} bytes)")
