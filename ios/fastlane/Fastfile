@@ -84,9 +84,9 @@ platform :ios do
       }
     )
 
-    # Archive ve IPA yollarını workflow için dışa yaz
-    archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
-    UI.message("ARCHIVE_PATH=#{archive_path}")
-    UI.message("IPA_PATH=#{lane_context[SharedValues::IPA_OUTPUT_PATH]}")
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+    )
   end
 end
