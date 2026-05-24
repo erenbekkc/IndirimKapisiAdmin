@@ -80,6 +80,9 @@ jobs:
           find ios/Pods/DKPhotoGallery -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
           find ios/Pods/DKImagePickerController -name "Images.xcassets" -exec rm -rf {} + 2>/dev/null || true
 
+      - name: Install Apple Transporter
+        run: brew install --cask transporter
+
       - name: Install Fastlane
         run: gem install fastlane --no-document
 
