@@ -76,19 +76,36 @@ platform :ios do
       }
     )
 
-    # p8 dosyasını standart konuma yaz — xcodebuild otomatik bulur, explicit path geçmiyoruz
-    key_id = ENV['ASC_KEY_ID'].strip
+    # --- p8 key yazma: encoding-safe, PEM validated ---
+    key_id    = ENV['ASC_KEY_ID'].strip
     issuer_id = ENV['ASC_ISSUER_ID'].strip
-    key_content = Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"])
-    # Unix satır sonu, BOM yok
-    key_content = key_content.gsub("\r\n", "\n").gsub("\r", "\n")
 
-    key_dir = "#{Dir.home}/.appstoreconnect/private_keys"
+    # Base64.decode64 → ASCII-8BIT (binary). Tüm işlemler .b ile binary modda yapılır.
+    key_bytes = Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"])
+
+    # Fail-fast: boş key
+    UI.user_error!("ASC_PRIVATE_KEY_B64 boş veya decode edilemedi!") if key_bytes.bytesize == 0
+
+    # PEM format validation — .b ile encoding-agnostic karşılaştırma
+    pem_header = "-----BEGIN PRIVATE KEY-----"
+    pem_footer = "-----END PRIVATE KEY-----"
+    unless key_bytes.b.include?(pem_header.b)
+      UI.user_error!("p8 key geçersiz: PEM header bulunamadı (#{key_bytes.bytesize} bytes). Secret doğru base64 encode edildi mi?")
+    end
+    unless key_bytes.b.include?(pem_footer.b)
+      UI.user_error!("p8 key geçersiz: PEM footer bulunamadı. Key eksik veya truncate olmuş olabilir.")
+    end
+
+    key_dir  = "#{Dir.home}/.appstoreconnect/private_keys"
     FileUtils.mkdir_p(key_dir)
     key_file = "#{key_dir}/AuthKey_#{key_id}.p8"
-    File.open(key_file, 'wb') { |f| f.write(key_content) }
+
+    # Binary mode write — ASCII-8BIT içerik dönüşümsüz yazılır
+    File.open(key_file, 'wb') { |f| f.write(key_bytes) }
     File.chmod(0600, key_file)
-    UI.message("p8 yazıldı: #{key_file} (#{key_content.bytesize} bytes), ilk satır: #{key_content.lines.first&.strip}")
+
+    # Encoding-safe log: key içeriği loglanmaz, sadece boyut ve format durumu
+    UI.message("p8 yazıldı: #{key_file} | #{key_bytes.bytesize} bytes | PEM format: OK")
 
     archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
 
@@ -113,7 +130,7 @@ platform :ios do
       </dict>
       PLIST
 
-    # -authenticationKeyPath YOK — xcodebuild ~/.appstoreconnect/private_keys/ içinde otomatik arar
+    # -authenticationKeyPath YOK — xcodebuild ~/.appstoreconnect/private_keys/ otomatik arar
     sh("xcodebuild -exportArchive -archivePath '#{archive_path}' -exportOptionsPlist /tmp/UploadOptions.plist -exportPath /tmp/upload -authenticationKeyID '#{key_id}' -authenticationKeyIssuerID '#{issuer_id}' -allowProvisioningUpdates 2>&1")
   end
 end
