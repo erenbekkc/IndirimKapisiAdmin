@@ -503,13 +503,38 @@ Kurallar:
   // Her ürün için DuckDuckGo ile internet üzerinden görsel bul
   // -----------------------------------------------------------------------
 
+  Future<String?> _searchImageInCampaigns(String productName) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('campaigns')
+          .where('product', isEqualTo: productName)
+          .limit(5)
+          .get();
+      for (final doc in snap.docs) {
+        final url = (doc.data()['productImageUrl'] as String? ?? '').trim();
+        if (url.isNotEmpty) return url;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> _fetchProductImages() async {
     int found = 0;
+    int fromCache = 0;
 
     for (int i = 0; i < _aiItems.length; i++) {
       final item = _aiItems[i];
       if (mounted) setState(() => _analyzeStatus = 'Görsel ${i + 1}/${_aiItems.length} aranıyor...');
-      final imageUrl = await _searchImageDuckDuckGo(item.productName);
+
+      // Önce kendi kampanyalarımıza bak
+      String? imageUrl = await _searchImageInCampaigns(item.productName);
+      if (imageUrl != null) {
+        fromCache++;
+      } else {
+        // Bulunamazsa DuckDuckGo'ya git
+        imageUrl = await _searchImageDuckDuckGo(item.productName);
+      }
+
       if (imageUrl != null) {
         item.productImageUrl = imageUrl;
         found++;
@@ -518,9 +543,10 @@ Kurallar:
     }
 
     if (mounted) {
+      final cacheInfo = fromCache > 0 ? ' ($fromCache kampanyadan, ${found - fromCache} DuckDuckGo)' : '';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(found > 0
-            ? '$found/${_aiItems.length} ürün için görsel bulundu.'
+            ? '$found/${_aiItems.length} ürün için görsel bulundu.$cacheInfo'
             : 'Görsel bulunamadı.'),
         backgroundColor: found > 0 ? const Color(0xFF16A34A) : Colors.orange,
         behavior: SnackBarBehavior.floating,

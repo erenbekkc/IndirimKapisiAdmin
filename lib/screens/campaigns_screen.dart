@@ -382,21 +382,39 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                 ),
                 if (productImageUrl != null && productImageUrl.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      productImageUrl,
-                      width: 90,
-                      height: 90,
-                      fit: BoxFit.cover,
-                      loadingBuilder: (_, child, progress) => progress == null
-                          ? child
-                          : const SizedBox(
-                              width: 90,
-                              height: 90,
-                              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  GestureDetector(
+                    onTap: () => showDialog(
+                      context: context,
+                      builder: (_) => Dialog(
+                        backgroundColor: Colors.transparent,
+                        insetPadding: const EdgeInsets.all(12),
+                        child: GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: InteractiveViewer(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.network(productImageUrl, fit: BoxFit.contain),
                             ),
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        productImageUrl,
+                        width: 90,
+                        height: 90,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (_, child, progress) => progress == null
+                            ? child
+                            : const SizedBox(
+                                width: 90,
+                                height: 90,
+                                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                              ),
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 ],
