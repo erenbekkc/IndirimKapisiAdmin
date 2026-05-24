@@ -85,7 +85,9 @@ platform :ios do
     key_dir = "#{Dir.home}/.appstoreconnect/private_keys"
     FileUtils.mkdir_p(key_dir)
     key_file = "#{key_dir}/AuthKey_#{key_id}.p8"
-    File.open(key_file, 'wb') { |f| f.write(Base64.decode64(ENV['ASC_PRIVATE_KEY_B64'])) }
+    decoded = Base64.decode64(ENV['ASC_PRIVATE_KEY_B64'])
+    decoded = decoded.gsub("\r\n", "\n").gsub("\r", "\n")
+    File.open(key_file, 'wb') { |f| f.write(decoded) }
 
     File.write('/tmp/UploadOptions.plist', <<~PLIST)
       <?xml version="1.0" encoding="UTF-8"?>
