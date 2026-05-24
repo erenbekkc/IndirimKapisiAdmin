@@ -76,36 +76,58 @@ platform :ios do
       }
     )
 
-    # --- p8 key yazma: encoding-safe, PEM validated ---
+    # --- p8 key yazma: encoding-safe, auto-detect format, PEM validated ---
     key_id    = ENV['ASC_KEY_ID'].strip
     issuer_id = ENV['ASC_ISSUER_ID'].strip
 
-    # Base64.decode64 → ASCII-8BIT (binary). Tüm işlemler .b ile binary modda yapılır.
-    key_bytes = Base64.decode64(ENV["ASC_PRIVATE_KEY_B64"])
+    raw_secret = ENV["ASC_PRIVATE_KEY_B64"] || ""
+    UI.user_error!("ASC_PRIVATE_KEY_B64 secret tanımlanmamış veya boş!") if raw_secret.strip.empty?
 
-    # Fail-fast: boş key
-    UI.user_error!("ASC_PRIVATE_KEY_B64 boş veya decode edilemedi!") if key_bytes.bytesize == 0
-
-    # PEM format validation — .b ile encoding-agnostic karşılaştırma
     pem_header = "-----BEGIN PRIVATE KEY-----"
-    pem_footer = "-----END PRIVATE KEY-----"
-    unless key_bytes.b.include?(pem_header.b)
-      UI.user_error!("p8 key geçersiz: PEM header bulunamadı (#{key_bytes.bytesize} bytes). Secret doğru base64 encode edildi mi?")
+    pem_footer  = "-----END PRIVATE KEY-----"
+
+    # Auto-detection: 3 case desteklenir
+    #   Case 1 — raw PEM  : secret doğrudan "-----BEGIN PRIVATE KEY-----" içeriyor
+    #   Case 2 — b64 PEM  : Base64.strict_decode64 → PEM içerik çıkıyor
+    #   Case 3 — b64 DER  : Base64.strict_decode64 → raw DER binary → PEM wrapper ekle
+    key_pem = if raw_secret.include?(pem_header)
+      # Case 1: raw PEM, olduğu gibi kullan
+      UI.message("p8 format: raw PEM (base64 encode edilmemiş)")
+      raw_secret.strip + "\n"
+    else
+      begin
+        decoded = Base64.strict_decode64(raw_secret.strip)
+        if decoded.b.include?(pem_header.b)
+          # Case 2: base64-encoded PEM
+          UI.message("p8 format: base64 → PEM (#{decoded.bytesize} bytes)")
+          decoded
+        else
+          # Case 3: base64-encoded DER binary → PEM reconstruct
+          UI.message("p8 format: base64 → DER binary (#{decoded.bytesize} bytes) → PEM wrap")
+          b64_body = Base64.strict_encode64(decoded).scan(/.{1,64}/).join("\n")
+          "#{pem_header}\n#{b64_body}\n#{pem_footer}\n"
+        end
+      rescue ArgumentError => e
+        UI.user_error!(
+          "ASC_PRIVATE_KEY_B64 ne raw PEM ne de geçerli base64. " \
+          "Secret'ı kontrol edin (decode hatası: #{e.message})"
+        )
+      end
     end
-    unless key_bytes.b.include?(pem_footer.b)
-      UI.user_error!("p8 key geçersiz: PEM footer bulunamadı. Key eksik veya truncate olmuş olabilir.")
+
+    # Final PEM validation — tüm encoding işlemleri .b ile
+    unless key_pem.b.include?(pem_header.b) && key_pem.b.include?(pem_footer.b)
+      UI.user_error!("p8 key PEM formatı doğrulanamadı. Header veya footer eksik.")
     end
 
     key_dir  = "#{Dir.home}/.appstoreconnect/private_keys"
     FileUtils.mkdir_p(key_dir)
     key_file = "#{key_dir}/AuthKey_#{key_id}.p8"
 
-    # Binary mode write — ASCII-8BIT içerik dönüşümsüz yazılır
-    File.open(key_file, 'wb') { |f| f.write(key_bytes) }
+    # Binary mode write — Encoding::CompatibilityError riski yok
+    File.open(key_file, 'wb') { |f| f.write(key_pem) }
     File.chmod(0600, key_file)
-
-    # Encoding-safe log: key içeriği loglanmaz, sadece boyut ve format durumu
-    UI.message("p8 yazıldı: #{key_file} | #{key_bytes.bytesize} bytes | PEM format: OK")
+    UI.message("p8 yazıldı: #{key_file} | #{key_pem.bytesize} bytes | PEM: OK")
 
     archive_path = lane_context[SharedValues::XCODEBUILD_ARCHIVE]
 
