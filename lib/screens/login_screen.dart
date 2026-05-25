@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,6 +14,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
+  bool _rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    final remember = prefs.getBool('remember_me') ?? false;
+    if (remember) {
+      _emailController.text = prefs.getString('saved_email') ?? '';
+      _passwordController.text = prefs.getString('saved_password') ?? '';
+      setState(() => _rememberMe = true);
+    }
+  }
 
   Future<void> _login() async {
     setState(() {
@@ -24,6 +42,16 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+      final prefs = await SharedPreferences.getInstance();
+      if (_rememberMe) {
+        await prefs.setBool('remember_me', true);
+        await prefs.setString('saved_email', _emailController.text.trim());
+        await prefs.setString('saved_password', _passwordController.text.trim());
+      } else {
+        await prefs.remove('remember_me');
+        await prefs.remove('saved_email');
+        await prefs.remove('saved_password');
+      }
     } on FirebaseAuthException catch (e) {
       setState(() {
         _error = e.message ?? 'Giriş başarısız';
@@ -86,11 +114,22 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     onSubmitted: (_) => _login(),
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _rememberMe,
+                        onChanged: (val) => setState(() => _rememberMe = val ?? false),
+                        activeColor: const Color(0xFF2563EB),
+                      ),
+                      const Text('Beni hatırla'),
+                    ],
+                  ),
                   if (_error != null) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Text(_error!, style: const TextStyle(color: Colors.red)),
                   ],
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
