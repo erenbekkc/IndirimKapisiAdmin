@@ -409,7 +409,8 @@ Kurallar:
 - categoryName alanı için mutlaka yukarıdaki listeden birini seç, ürünün içeriğine göre en mantıklısını seç
 - Fiyatlar ondalık noktalı sayı (TL işareti yok), bulamazsan null
 - Tarih bulamazsan null (string "null" değil, gerçek null)
-- Tüm ürünleri dahil et, hiçbirini atlama''';
+- Tüm ürünleri dahil et, hiçbirini atlama
+- productName alanında broşürde ne yazıyorsa HARFİYEN yaz, kesinlikle matematiksel işlem yapma (örnek: "2*90 gr" yazıyorsa "180 gr" değil "2*90 gr" yaz)''';
 
       final finalPrompt = prompt.replaceFirst('CATEGORY_NAMES', categoryNames);
 
