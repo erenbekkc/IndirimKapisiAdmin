@@ -540,6 +540,13 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
 
                 return Column(
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 10, 8, 2),
+                      child: Center(
+                        child: Text('${docs.length} Kampanya',
+                            style: const TextStyle(fontSize: 15, color: Color(0xFF16A34A), fontWeight: FontWeight.w700)),
+                      ),
+                    ),
                     if (_filter == CampaignFilter.expired)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),

@@ -544,7 +544,7 @@ Kurallar:
     }
 
     if (mounted) {
-      final cacheInfo = fromCache > 0 ? ' ($fromCache kampanyadan, ${found - fromCache} DuckDuckGo)' : '';
+      final cacheInfo = fromCache > 0 ? ' ($fromCache kampanyadan, ${found - fromCache} internet)' : '';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(found > 0
             ? '$found/${_aiItems.length} ürün için görsel bulundu.$cacheInfo'
@@ -556,48 +556,16 @@ Kurallar:
     }
   }
 
+  // Firebase Function üzerinden görsel arama (DuckDuckGo + OpenFoodFacts + Bing fallback)
   Future<String?> _searchImageDuckDuckGo(String query) async {
     try {
-      // Adım 1: VQD token al
-      final initResp = await http.get(
-        Uri.parse('https://duckduckgo.com/?q=${Uri.encodeQueryComponent(query)}&iax=images&ia=images'),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-          'Accept': 'text/html',
-          'Accept-Language': 'tr-TR,tr;q=0.9',
-        },
-      ).timeout(const Duration(seconds: 8));
+      final resp = await http.get(
+        Uri.parse('https://europe-west1-indirim-takip-71bc8.cloudfunctions.net/searchImage?q=${Uri.encodeQueryComponent(query)}'),
+      ).timeout(const Duration(seconds: 20));
 
-      if (initResp.statusCode != 200) return null;
-
-      final vqdMatch = RegExp(r'vqd=([\d-]+)').firstMatch(initResp.body);
-      if (vqdMatch == null || vqdMatch.group(1)!.isEmpty) return null;
-      final vqd = vqdMatch.group(1)!;
-
-      // Adım 2: Görselleri getir
-      final imgResp = await http.get(
-        Uri.parse('https://duckduckgo.com/i.js?l=tr-tr&o=json&q=${Uri.encodeQueryComponent(query)}&vqd=$vqd&f=,,,,,&p=1'),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-          'Referer': 'https://duckduckgo.com/',
-          'Accept': 'application/json',
-        },
-      ).timeout(const Duration(seconds: 8));
-
-      if (imgResp.statusCode == 200) {
-        final body    = jsonDecode(imgResp.body) as Map<String, dynamic>;
-        final results = body['results'] as List?;
-        if (results != null && results.isNotEmpty) {
-          return results.first['image'] as String?;
-        }
-      } else {
-        FirebaseFirestore.instance.collection('app_logs').add({
-          'location':     'imageSearch',
-          'errorType':    'HTTP_${imgResp.statusCode}',
-          'errorMessage': imgResp.body.substring(0, imgResp.body.length.clamp(0, 300)),
-          'context':      query,
-          'timestamp':    FieldValue.serverTimestamp(),
-        });
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        return body['url'] as String?;
       }
     } catch (e, s) {
       FirebaseFirestore.instance.collection('app_logs').add({
@@ -612,32 +580,7 @@ Kurallar:
     return null;
   }
 
-  Future<String?> _searchImageYandex(String query) async {
-    try {
-      final resp = await http.get(
-        Uri.parse('https://yandex.com/images/search?text=${Uri.encodeQueryComponent(query)}&itype=jpg'),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-          'Accept-Language': 'tr-TR,tr;q=0.9',
-          'Accept': 'text/html',
-        },
-      ).timeout(const Duration(seconds: 8));
-
-      if (resp.statusCode != 200) return null;
-
-      // Yandex sayfasında "url" içeren JSON bloklarından ilk geçerli resim URL'sini bul
-      final body = resp.body;
-      final matches = RegExp(r'"url"\s*:\s*"(https://[^"]+\.(?:jpg|jpeg|png|webp))"')
-          .allMatches(body);
-      for (final m in matches) {
-        final url = m.group(1);
-        if (url != null && !url.contains('yastatic') && !url.contains('yandex.')) {
-          return url;
-        }
-      }
-    } catch (_) {}
-    return null;
-  }
+  Future<String?> _searchImageYandex(String query) async => null;
 
   // -----------------------------------------------------------------------
   // Edit bottom sheet
@@ -808,12 +751,7 @@ Kurallar:
                           source = 'kampanya koleksiyonu';
                         } else {
                           found = await _searchImageDuckDuckGo(query);
-                          if (found != null) {
-                            source = 'DuckDuckGo';
-                          } else {
-                            found = await _searchImageYandex(query);
-                            if (found != null) source = 'Yandex';
-                          }
+                          if (found != null) source = 'internet';
                         }
                         ScaffoldMessenger.of(context).hideCurrentSnackBar();
                         final String msg;
@@ -823,7 +761,7 @@ Kurallar:
                           msg = 'Görsel bulundu ($source)';
                           msgColor = const Color(0xFF16A34A);
                         } else {
-                          msg = 'Görsel bulunamadı (kampanya, DuckDuckGo, Yandex denendi)';
+                          msg = 'Görsel bulunamadı';
                           msgColor = Colors.orange;
                         }
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
