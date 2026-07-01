@@ -14,10 +14,23 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
   DateTime _endDate = DateTime.now();
   bool _loading = false;
   List<Map<String, dynamic>> _dailyData = [];
-  Map<String, int> _citySessionMap = {};
-  Map<String, int> _cityUniqueMap = {};
-  // key: 'yyyy-MM', value: {'android': int, 'ios': int}
-  Map<String, Map<String, int>> _downloadsByMonth = {};
+
+  // Aylık şehir dağılımı: key = "YYYY-MM"
+  Map<String, Map<String, int>> _monthlySessionMaps = {};
+  Map<String, Map<String, int>> _monthlyUniqueMaps  = {};
+  Map<String, int> _monthlySessionPages = {};
+  Map<String, int> _monthlyUniquePages  = {};
+
+  static const int _cityPageSize = 10;
+
+  // İlk raporlama ayı
+  static const int _firstYear  = 2026;
+  static const int _firstMonth = 6; // Haziran
+
+  static const List<String> _monthNames = [
+    '', 'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+  ];
 
   @override
   void initState() {
@@ -28,9 +41,26 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
   String _dateStr(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
+  /// Başlangıç ayından bugünün ayına kadar tüm ay anahtarlarını döner.
+  List<String> _monthKeys() {
+    final today = DateTime.now();
+    final keys  = <String>[];
+    var year  = _firstYear;
+    var month = _firstMonth;
+    while (year < today.year || (year == today.year && month <= today.month)) {
+      keys.add('$year-${month.toString().padLeft(2, '0')}');
+      month++;
+      if (month > 12) { month = 1; year++; }
+    }
+    return keys;
+  }
+
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
+      final today = DateTime.now();
+      final todayStr = _dateStr(today);
+
       final dates = <String>[];
       var d = _startDate;
       while (!d.isAfter(_endDate)) {
@@ -38,12 +68,29 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
         d = d.add(const Duration(days: 1));
       }
 
-      // Aylık şehir sorgusu
-      final now = DateTime.now();
-      final monthStart = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
-      final monthEnd   = '${now.year}-${now.month.toString().padLeft(2, '0')}-31';
+      final monthKeys = _monthKeys();
 
-      // Paralel: daily_stats, user-stats (seçili aralık), user-stats (aylık), ilk kurulumlar (tüm zamanlar)
+      // Paralel sorgular: daily_stats + user-stats (seçili aralık, günlük için) + her ay için şehir
+      final monthFutures = monthKeys.map((key) {
+        final parts = key.split('-');
+        final y = int.parse(parts[0]);
+        final m = int.parse(parts[1]);
+        final start = '$key-01';
+        // Son gün: mevcut ay ise bugün, değilse ayın son günü
+        final String end;
+        if (y == today.year && m == today.month) {
+          end = todayStr;
+        } else {
+          final lastDay = DateTime(y, m + 1, 0).day;
+          end = '$key-${lastDay.toString().padLeft(2, '0')}';
+        }
+        return FirebaseFirestore.instance
+            .collection('user-stats')
+            .where('sessionDate', isGreaterThanOrEqualTo: start)
+            .where('sessionDate', isLessThanOrEqualTo: end)
+            .get();
+      }).toList();
+
       final results = await Future.wait<dynamic>([
         Future.wait(dates.map((dt) =>
             FirebaseFirestore.instance.collection('daily_stats').doc(dt).get())),
@@ -52,124 +99,101 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
             .where('sessionDate', isGreaterThanOrEqualTo: dates.first)
             .where('sessionDate', isLessThanOrEqualTo: dates.last)
             .get(),
-        FirebaseFirestore.instance
-            .collection('user-stats')
-            .where('sessionDate', isGreaterThanOrEqualTo: monthStart)
-            .where('sessionDate', isLessThanOrEqualTo: monthEnd)
-            .get(),
-        FirebaseFirestore.instance
-            .collection('user-stats')
-            .where('isFirstOpen', isEqualTo: true)
-            .get(),
+        ...monthFutures,
       ]);
 
-      final snapshots        = results[0] as List<DocumentSnapshot>;
-      final userStatsSnap    = results[1] as QuerySnapshot;
-      final monthlyStatsSnap = results[2] as QuerySnapshot;
-      final firstOpenSnap    = results[3] as QuerySnapshot;
+      final snapshots     = results[0] as List<DocumentSnapshot>;
+      final userStatsSnap = results[1] as QuerySnapshot;
 
-      // user-stats'ı tarihe göre grupla (seçili aralık)
+      // Günlük satırlar için user-stats'ı tarihe göre grupla
       final Map<String, List<Map<String, dynamic>>> statsByDate = {};
-
       for (final doc in userStatsSnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final dateKey = (data['sessionDate'] as String?) ?? '';
         statsByDate.putIfAbsent(dateKey, () => []).add(data);
       }
 
-      // Aylık şehir dağılımı
-      final Map<String, int>        citySessionMap = {};
-      final Map<String, Set<String>> cityUidSets   = {};
-
-      for (final doc in monthlyStatsSnap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final city = (data['city'] as String?) ?? 'Bilinmiyor';
-        final uid  = data['uid'] as String?;
-        citySessionMap[city] = (citySessionMap[city] ?? 0) + 1;
-        if (uid != null) {
-          cityUidSets.putIfAbsent(city, () => {}).add(uid);
+      // Aylık şehir dağılımlarını işle
+      final newSessionMaps = <String, Map<String, int>>{};
+      final newUniqueMaps  = <String, Map<String, int>>{};
+      for (int i = 0; i < monthKeys.length; i++) {
+        final snap = results[2 + i] as QuerySnapshot;
+        final citySessionMap = <String, int>{};
+        final cityUidSets   = <String, Set<String>>{};
+        for (final doc in snap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final city = (data['city'] as String?) ?? 'Bilinmiyor';
+          final uid  = data['uid'] as String?;
+          citySessionMap[city] = (citySessionMap[city] ?? 0) + 1;
+          if (uid != null) {
+            cityUidSets.putIfAbsent(city, () => {}).add(uid);
+          }
         }
-      }
-
-      final cityUniqueMap = Map.fromEntries(
-        cityUidSets.entries.map((e) => MapEntry(e.key, e.value.length)),
-      );
-
-      // Tüm zamanlara göre aylık kurulum sayısı
-      final Map<String, Map<String, int>> downloadsByMonth = {};
-      for (final doc in firstOpenSnap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final dateStr = (data['sessionDate'] as String?) ?? '';
-        if (dateStr.length < 7) continue;
-        final monthKey = dateStr.substring(0, 7); // 'yyyy-MM'
-        downloadsByMonth.putIfAbsent(monthKey, () => {'android': 0, 'ios': 0});
-        if (data['platform'] == 'ios') {
-          downloadsByMonth[monthKey]!['ios'] = downloadsByMonth[monthKey]!['ios']! + 1;
-        } else {
-          downloadsByMonth[monthKey]!['android'] = downloadsByMonth[monthKey]!['android']! + 1;
-        }
+        newSessionMaps[monthKeys[i]] = citySessionMap;
+        newUniqueMaps[monthKeys[i]]  = Map.fromEntries(
+          cityUidSets.entries.map((e) => MapEntry(e.key, e.value.length)),
+        );
       }
 
       // Günlük satırları oluştur
       final rows = <Map<String, dynamic>>[];
       for (int i = 0; i < dates.length; i++) {
         final data = (snapshots[i].data() as Map<String, dynamic>?) ?? {};
-        final androidTokens = (data['androidUniqueUsers'] as List?)?.length ?? 0;
-        final iosTokens = (data['iosUniqueUsers'] as List?)?.length ?? 0;
 
-        // user-stats'tan gelen veriler
-        final dayStats = statsByDate[dates[i]] ?? [];
+        final dayStats    = statsByDate[dates[i]] ?? [];
         final androidSess = dayStats.where((s) => s['platform'] == 'android').toList();
-        final iosSess = dayStats.where((s) => s['platform'] == 'ios').toList();
+        final iosSess     = dayStats.where((s) => s['platform'] == 'ios').toList();
+
+        final androidOpens = androidSess.length;
+        final iosOpens     = iosSess.length;
+
+        final androidUids = androidSess
+            .map((s) => s['uid'] as String?)
+            .whereType<String>()
+            .toSet()
+            .length;
+        final iosUids = iosSess
+            .map((s) => s['uid'] as String?)
+            .whereType<String>()
+            .toSet()
+            .length;
 
         int aAds = 0, iAds = 0;
-        int aInstalls = 0, iInstalls = 0;
-
-        for (final s in androidSess) {
-          aAds += (s['adsWatched'] as int?) ?? 0;
-          if (s['isFirstOpen'] == true) aInstalls++;
-        }
-        for (final s in iosSess) {
-          iAds += (s['adsWatched'] as int?) ?? 0;
-          if (s['isFirstOpen'] == true) iInstalls++;
-        }
+        for (final s in androidSess) aAds += (s['adsWatched'] as int?) ?? 0;
+        for (final s in iosSess)     iAds += (s['adsWatched'] as int?) ?? 0;
 
         rows.add({
           'date': dates[i],
-          'androidOpens': (data['androidOpens'] as num?)?.toInt() ?? 0,
-          'iosOpens': (data['iosOpens'] as num?)?.toInt() ?? 0,
-          'androidUnique': androidTokens,
-          'iosUnique': iosTokens,
+          'androidOpens': androidOpens,
+          'iosOpens': iosOpens,
+          'androidUnique': androidUids,
+          'iosUnique': iosUids,
           'androidNotifClicks': (data['androidNotifClicks'] as num?)?.toInt() ?? 0,
           'iosNotifClicks': (data['iosNotifClicks'] as num?)?.toInt() ?? 0,
           'notifSent': (data['notifSent'] as num?)?.toInt() ?? 0,
           'androidNotifSent': (data['androidNotifSent'] as num?)?.toInt() ?? 0,
           'iosNotifSent': (data['iosNotifSent'] as num?)?.toInt() ?? 0,
-          // Yeni: kurulum (user-stats'tan)
-          'androidInstalls': aInstalls,
-          'iosInstalls': iInstalls,
-          // Yeni: reklam görüntüleme (toplam + oturum başı ortalama)
           'androidAds': aAds,
           'iosAds': iAds,
-          'androidAvgAds': (data['androidOpens'] as num?)?.toInt() != null && (data['androidOpens'] as num).toInt() > 0 ? (aAds / (data['androidOpens'] as num).toInt()) : 0.0,
-          'iosAvgAds': (data['iosOpens'] as num?)?.toInt() != null && (data['iosOpens'] as num).toInt() > 0 ? (iAds / (data['iosOpens'] as num).toInt()) : 0.0,
+          'androidAvgAds': androidOpens > 0 ? aAds / androidOpens : 0.0,
+          'iosAvgAds': iosOpens > 0 ? iAds / iosOpens : 0.0,
         });
       }
 
       setState(() {
-        _dailyData = rows;
-        _citySessionMap = citySessionMap;
-        _cityUniqueMap  = cityUniqueMap;
-        _downloadsByMonth = downloadsByMonth;
-        _loading = false;
+        _dailyData           = rows;
+        _monthlySessionMaps  = newSessionMaps;
+        _monthlyUniqueMaps   = newUniqueMaps;
+        _monthlySessionPages = {};
+        _monthlyUniquePages  = {};
+        _loading             = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hata: $e'), duration: const Duration(seconds: 6)),
+      );
     }
   }
 
@@ -184,7 +208,7 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     if (picked != null) {
       setState(() {
         _startDate = picked.start;
-        _endDate = picked.end;
+        _endDate   = picked.end;
       });
       _loadData();
     }
@@ -197,13 +221,23 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
       r['androidNotifSent'] == 0 &&
       r['iosNotifSent'] == 0 &&
       r['androidUnique'] == 0 &&
-      r['iosUnique'] == 0 &&
-      r['androidInstalls'] == 0 &&
-      r['iosInstalls'] == 0;
+      r['iosUnique'] == 0;
+
+  String _monthLabel(String key) {
+    final today  = DateTime.now();
+    final parts  = key.split('-');
+    final y      = int.parse(parts[0]);
+    final m      = int.parse(parts[1]);
+    final name   = _monthNames[m];
+    final isCurrent = y == today.year && m == today.month;
+    return isCurrent ? '$name $y (kümülatif)' : '$name $y';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final df = DateFormat('d MMM', 'tr_TR');
+    final df         = DateFormat('d MMM', 'tr_TR');
+    final monthKeys  = _monthKeys();
+
     return _loading
         ? const Center(child: CircularProgressIndicator())
         : RefreshIndicator(
@@ -251,62 +285,45 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
                   else
                     ..._dailyData.reversed.map((row) => _dayCard(row, df)),
 
-                  // Şehir dağılımı — Oturum
-                  if (_citySessionMap.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _sectionHeader('Şehir Dağılımı — Oturum Sayısı (${_monthLabel()})'),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: _buildCitySection(_citySessionMap),
-                      ),
-                    ),
-                  ],
-                  // Şehir dağılımı — Tekil Kullanıcı
-                  if (_cityUniqueMap.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    _sectionHeader('Şehir Dağılımı — Tekil Kullanıcı (${_monthLabel()})'),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: _buildCitySection(_cityUniqueMap),
-                      ),
-                    ),
-                  ],
-
-                  // Aylık ilk kurulum — tüm aylar
-                  if (_downloadsByMonth.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _sectionHeader('İlk Kurulum — Aylık'),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          children: (_downloadsByMonth.entries.toList()
-                                ..sort((a, b) => b.key.compareTo(a.key)))
-                              .map((e) {
-                            final android = e.value['android'] ?? 0;
-                            final ios = e.value['ios'] ?? 0;
-                            final parts = e.key.split('-');
-                            final dt = DateTime(int.parse(parts[0]), int.parse(parts[1]));
-                            final label = DateFormat('MMMM yyyy', 'tr_TR').format(dt);
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: _statRow(
-                                label: label,
-                                total: android + ios,
-                                android: android,
-                                ios: ios,
-                              ),
-                            );
-                          }).toList(),
+                  // Aylık şehir dağılımları (en yeniden en eskiye)
+                  ...monthKeys.reversed.expand((key) {
+                    final sessionMap = _monthlySessionMaps[key] ?? {};
+                    final uniqueMap  = _monthlyUniqueMaps[key]  ?? {};
+                    final label      = _monthLabel(key);
+                    if (sessionMap.isEmpty && uniqueMap.isEmpty) return <Widget>[];
+                    return [
+                      if (sessionMap.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        _sectionHeader('Şehir Dağılımı — Oturum Sayısı ($label)'),
+                        const SizedBox(height: 8),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: _buildCitySection(
+                              sessionMap,
+                              _monthlySessionPages[key] ?? 0,
+                              (p) => setState(() => _monthlySessionPages[key] = p),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
+                      ],
+                      if (uniqueMap.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        _sectionHeader('Şehir Dağılımı — Tekil Kullanıcı ($label)'),
+                        const SizedBox(height: 8),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: _buildCitySection(
+                              uniqueMap,
+                              _monthlyUniquePages[key] ?? 0,
+                              (p) => setState(() => _monthlyUniquePages[key] = p),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ];
+                  }),
                 ],
               ),
             ),
@@ -326,23 +343,21 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
 
   Widget _dayCard(Map<String, dynamic> row, DateFormat df) {
     final parts = (row['date'] as String).split('-');
-    final dt = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    final dt    = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
 
-    final androidOpens = row['androidOpens'] as int;
-    final iosOpens = row['iosOpens'] as int;
-    final androidUnique = row['androidUnique'] as int;
-    final iosUnique = row['iosUnique'] as int;
+    final androidOpens  = row['androidOpens']  as int;
+    final iosOpens      = row['iosOpens']       as int;
+    final androidUnique = row['androidUnique']  as int;
+    final iosUnique     = row['iosUnique']      as int;
     final androidClicks = row['androidNotifClicks'] as int;
-    final iosClicks = row['iosNotifClicks'] as int;
-    final notifSent = row['notifSent'] as int;
-    final androidSent = row['androidNotifSent'] as int;
-    final iosSent = row['iosNotifSent'] as int;
-    final androidInstalls = row['androidInstalls'] as int;
-    final iosInstalls = row['iosInstalls'] as int;
-    final androidAds = row['androidAds'] as int;
-    final iosAds = row['iosAds'] as int;
+    final iosClicks     = row['iosNotifClicks']     as int;
+    final notifSent     = row['notifSent']          as int;
+    final androidSent   = row['androidNotifSent']   as int;
+    final iosSent       = row['iosNotifSent']        as int;
+    final androidAds    = row['androidAds']          as int;
+    final iosAds        = row['iosAds']              as int;
     final androidAvgAds = (row['androidAvgAds'] as num?)?.toDouble() ?? 0.0;
-    final iosAvgAds = (row['iosAvgAds'] as num?)?.toDouble() ?? 0.0;
+    final iosAvgAds     = (row['iosAvgAds']     as num?)?.toDouble() ?? 0.0;
 
     if (_isRowEmpty(row)) return const SizedBox.shrink();
 
@@ -358,15 +373,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
             ),
             const Divider(height: 12),
-            if (androidInstalls > 0 || iosInstalls > 0) ...[
-              _statRow(
-                label: 'Kurulum',
-                total: androidInstalls + iosInstalls,
-                android: androidInstalls,
-                ios: iosInstalls,
-              ),
-              const SizedBox(height: 4),
-            ],
             _statRow(
               label: 'Tekil Kullanıcı',
               total: androidUnique + iosUnique,
@@ -458,46 +464,102 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     );
   }
 
-  String _monthLabel() =>
-      DateFormat('MMMM yyyy', 'tr_TR').format(DateTime.now());
-
-  Widget _buildCitySection(Map<String, int> cityMap) {
-    final total = cityMap.values.fold(0, (a, b) => a + b);
-    final sorted = cityMap.entries.toList()
+  Widget _buildCitySection(
+    Map<String, int> cityMap,
+    int page,
+    void Function(int) onPageChange,
+  ) {
+    final grandTotal = cityMap.values.fold(0, (a, b) => a + b);
+    final sorted     = cityMap.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final totalPages = (sorted.length / _cityPageSize).ceil();
+    final start      = page * _cityPageSize;
+    final end        = (start + _cityPageSize).clamp(0, sorted.length);
+    final pageItems  = sorted.sublist(start, end);
+
     return Column(
-      children: sorted.take(15).map((e) {
-        final pct = total > 0 ? e.value / total : 0.0;
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: [
-              const Icon(Icons.location_on, size: 13, color: Colors.grey),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(e.key, style: const TextStyle(fontSize: 12)),
-              ),
-              Text('${e.value}',
-                  style: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.bold)),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 70,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(
-                    value: pct,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor:
-                        const AlwaysStoppedAnimation(Color(0xFF2563EB)),
-                    minHeight: 5,
+      children: [
+        ...pageItems.map((e) {
+          final pct = grandTotal > 0 ? e.value / grandTotal : 0.0;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, size: 13, color: Colors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(e.key, style: const TextStyle(fontSize: 12)),
+                ),
+                Text('${e.value}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 70,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LinearProgressIndicator(
+                      value: pct,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor: const AlwaysStoppedAnimation(Color(0xFF2563EB)),
+                      minHeight: 5,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          );
+        }),
+        if (totalPages > 1) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 4,
+            children: List.generate(totalPages, (i) {
+              final selected = i == page;
+              return GestureDetector(
+                onTap: () => onPageChange(i),
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? const Color(0xFF2563EB)
+                        : Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${i + 1}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ),
+              );
+            }),
           ),
-        );
-      }).toList(),
+        ],
+        const Divider(height: 16),
+        Row(
+          children: [
+            const Expanded(
+              child: Text('Toplam',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2563EB))),
+            ),
+            Text('$grandTotal',
+                style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2563EB))),
+            const SizedBox(width: 78),
+          ],
+        ),
+      ],
     );
   }
 
