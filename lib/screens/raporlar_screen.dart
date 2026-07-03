@@ -55,6 +55,9 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     return keys;
   }
 
+  // 3 Temmuz 2026 ve sonrası notification_candidates koleksiyonundan alınır
+  static const String _notifCandidateCutoff = '2026-07-03';
+
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
@@ -69,6 +72,18 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
       }
 
       final monthKeys = _monthKeys();
+
+      // Cutoff sonrası tarihler için notification_candidates sorgusu
+      final candidateDates = dates
+          .where((dt) => dt.compareTo(_notifCandidateCutoff) >= 0)
+          .toList();
+      final candidatesFuture = candidateDates.isNotEmpty
+          ? FirebaseFirestore.instance
+              .collection('notification_candidates')
+              .where('date', isGreaterThanOrEqualTo: candidateDates.first)
+              .where('date', isLessThanOrEqualTo: candidateDates.last)
+              .get()
+          : Future<QuerySnapshot?>.value(null);
 
       // Paralel sorgular: daily_stats + user-stats (seçili aralık, günlük için) + her ay için şehir
       final monthFutures = monthKeys.map((key) {
@@ -100,10 +115,12 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
             .where('sessionDate', isLessThanOrEqualTo: dates.last)
             .get(),
         ...monthFutures,
+        candidatesFuture,
       ]);
 
       final snapshots     = results[0] as List<DocumentSnapshot>;
       final userStatsSnap = results[1] as QuerySnapshot;
+      final candidatesSnap = results.last as QuerySnapshot?;
 
       // Günlük satırlar için user-stats'ı tarihe göre grupla
       final Map<String, List<Map<String, dynamic>>> statsByDate = {};
@@ -111,6 +128,20 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
         final data = doc.data() as Map<String, dynamic>;
         final dateKey = (data['sessionDate'] as String?) ?? '';
         statsByDate.putIfAbsent(dateKey, () => []).add(data);
+      }
+
+      // notification_candidates'ı tarihe ve platforma göre grupla (sent=true bellekte filtrele)
+      final Map<String, Map<String, int>> candidatesByDate = {};
+      if (candidatesSnap != null) {
+        for (final doc in candidatesSnap.docs) {
+          final cd = doc.data() as Map<String, dynamic>;
+          if (cd['sent'] != true) continue;
+          final dateKey  = (cd['date'] as String?) ?? '';
+          final platform = (cd['platform'] as String?) ?? 'android';
+          candidatesByDate.putIfAbsent(dateKey, () => {'android': 0, 'ios': 0});
+          candidatesByDate[dateKey]![platform] =
+              (candidatesByDate[dateKey]![platform] ?? 0) + 1;
+        }
       }
 
       // Aylık şehir dağılımlarını işle
@@ -162,6 +193,19 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
         for (final s in androidSess) aAds += (s['adsWatched'] as int?) ?? 0;
         for (final s in iosSess)     iAds += (s['adsWatched'] as int?) ?? 0;
 
+        // Bildirim gönderim: cutoff sonrası → notification_candidates, öncesi → daily_stats
+        final int androidSent, iosSent, notifSent;
+        if (dates[i].compareTo(_notifCandidateCutoff) >= 0) {
+          final cd = candidatesByDate[dates[i]] ?? {};
+          androidSent = cd['android'] ?? 0;
+          iosSent     = cd['ios']     ?? 0;
+          notifSent   = androidSent + iosSent;
+        } else {
+          notifSent   = (data['notifSent']         as num?)?.toInt() ?? 0;
+          androidSent = (data['androidNotifSent']  as num?)?.toInt() ?? 0;
+          iosSent     = (data['iosNotifSent']       as num?)?.toInt() ?? 0;
+        }
+
         rows.add({
           'date': dates[i],
           'androidOpens': androidOpens,
@@ -170,9 +214,9 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
           'iosUnique': iosUids,
           'androidNotifClicks': (data['androidNotifClicks'] as num?)?.toInt() ?? 0,
           'iosNotifClicks': (data['iosNotifClicks'] as num?)?.toInt() ?? 0,
-          'notifSent': (data['notifSent'] as num?)?.toInt() ?? 0,
-          'androidNotifSent': (data['androidNotifSent'] as num?)?.toInt() ?? 0,
-          'iosNotifSent': (data['iosNotifSent'] as num?)?.toInt() ?? 0,
+          'notifSent': notifSent,
+          'androidNotifSent': androidSent,
+          'iosNotifSent': iosSent,
           'androidAds': aAds,
           'iosAds': iAds,
           'androidAvgAds': androidOpens > 0 ? aAds / androidOpens : 0.0,
