@@ -21,6 +21,8 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
   final Map<String, String> _marketIconMap = {};
   StreamSubscription<QuerySnapshot>? _categorySub;
   StreamSubscription<QuerySnapshot>? _marketSub;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -63,6 +65,7 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
   void dispose() {
     _categorySub?.cancel();
     _marketSub?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -500,11 +503,17 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                 if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
                 final all = snapshot.data!.docs;
+                final q = _searchQuery.trim().toLowerCase();
                 final docs = all.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final startDate = (data['startDate'] as Timestamp?)?.toDate();
                   final endDate = (data['endDate'] as Timestamp?)?.toDate();
                   final endDay = endDate != null ? DateTime(endDate.year, endDate.month, endDate.day) : null;
+                  // Arama modunda: tüm kampanyalar içinde ürün adı ara
+                  if (q.isNotEmpty) {
+                    final product = ((data['product'] as String?) ?? (data['title'] as String?) ?? '').toLowerCase();
+                    return product.contains(q);
+                  }
                   if (_selectedMarketId != null && data['marketId'] != _selectedMarketId) return false;
                   if (_selectedCategoryId != null && data['categoryId'] != _selectedCategoryId) return false;
                   switch (_filter) {
@@ -526,11 +535,13 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                         Icon(Icons.campaign_outlined, size: 64, color: Colors.grey.shade300),
                         const SizedBox(height: 12),
                         Text(
-                          _filter == CampaignFilter.active
-                              ? 'Devam eden kampanya yok'
-                              : _filter == CampaignFilter.upcoming
-                                  ? 'Gelecek kampanya yok'
-                                  : 'Süresi dolan kampanya yok',
+                          _searchQuery.isNotEmpty
+                              ? '"$_searchQuery" için sonuç bulunamadı'
+                              : _filter == CampaignFilter.active
+                                  ? 'Devam eden kampanya yok'
+                                  : _filter == CampaignFilter.upcoming
+                                      ? 'Gelecek kampanya yok'
+                                      : 'Süresi dolan kampanya yok',
                           style: const TextStyle(color: Colors.grey),
                         ),
                       ],
@@ -543,8 +554,12 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(8, 10, 8, 2),
                       child: Center(
-                        child: Text('${docs.length} Kampanya',
-                            style: const TextStyle(fontSize: 15, color: Color(0xFF16A34A), fontWeight: FontWeight.w700)),
+                        child: Text(
+                          _searchQuery.isNotEmpty
+                              ? '"$_searchQuery" için ${docs.length} sonuç'
+                              : '${docs.length} Kampanya',
+                          style: const TextStyle(fontSize: 15, color: Color(0xFF16A34A), fontWeight: FontWeight.w700),
+                        ),
                       ),
                     ),
                     if (_filter == CampaignFilter.expired)
@@ -588,18 +603,53 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
         Container(
           color: Colors.white,
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
+          child: Column(
             children: [
-              _filterChip(CampaignFilter.active, 'Devam Eden', Colors.green.shade700),
-              const SizedBox(width: 8),
-              _filterChip(CampaignFilter.upcoming, 'Gelecek', const Color(0xFF2563EB)),
-              const SizedBox(width: 8),
-              _filterChip(CampaignFilter.expired, 'Süresi Dolan', Colors.red.shade400),
+              // Arama çubuğu
+              TextField(
+                controller: _searchController,
+                onChanged: (v) => setState(() => _searchQuery = v),
+                decoration: InputDecoration(
+                  hintText: 'Ürün adı ara (tüm kampanyalarda)...',
+                  hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
+                  prefixIcon: const Icon(Icons.search, size: 20, color: Colors.grey),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18, color: Colors.grey),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
+                      : null,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              if (_searchQuery.isEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _filterChip(CampaignFilter.active, 'Devam Eden', Colors.green.shade700),
+                    const SizedBox(width: 8),
+                    _filterChip(CampaignFilter.upcoming, 'Gelecek', const Color(0xFF2563EB)),
+                    const SizedBox(width: 8),
+                    _filterChip(CampaignFilter.expired, 'Süresi Dolan', Colors.red.shade400),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
-        _buildMarketChips(),
-        _buildCategoryChips(),
+        if (_searchQuery.isEmpty) ...[
+          _buildMarketChips(),
+          _buildCategoryChips(),
+        ],
       ],
     );
   }
