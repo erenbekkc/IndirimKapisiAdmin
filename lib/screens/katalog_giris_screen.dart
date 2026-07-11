@@ -143,6 +143,9 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
   // Taslaklar tab state
   final Set<String> _selectedDraftIds = {};
   bool _publishing = false;
+  DateTime? _bulkStartDate;
+  DateTime? _bulkEndDate;
+  bool _applyingBulkDates = false;
 
   static const _anthropicKey   = 'anthropic_api_key';
   static const _googleApiKey   = 'google_api_key';
@@ -1771,6 +1774,117 @@ Kurallar:
                   ),
                 ),
 
+                // Kampanya Tarih Girişi
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                    child: Card(
+                      color: const Color(0xFFF0F9FF),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(color: const Color(0xFF2563EB).withOpacity(0.25)),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Kampanya Tarih Girişi',
+                                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            const SizedBox(height: 2),
+                            Text('Tüm taslakların tarihlerini toplu günceller',
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                            const SizedBox(height: 10),
+                            Row(children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  icon: const Icon(Icons.calendar_today_outlined, size: 15),
+                                  label: Text(
+                                    _bulkStartDate != null
+                                        ? _dateFormat.format(_bulkStartDate!)
+                                        : 'Başlangıç',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  onPressed: () async {
+                                    final d = await showDatePicker(
+                                      context: context,
+                                      initialDate: _bulkStartDate ?? DateTime.now(),
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime(2030),
+                                      locale: const Locale('tr', 'TR'),
+                                    );
+                                    if (d != null) setState(() => _bulkStartDate = d);
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                    side: BorderSide(
+                                        color: _bulkStartDate != null
+                                            ? const Color(0xFF2563EB)
+                                            : Colors.grey.shade400),
+                                  ),
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 6),
+                                child: Text('–', style: TextStyle(fontWeight: FontWeight.bold)),
+                              ),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  icon: const Icon(Icons.calendar_today_outlined, size: 15),
+                                  label: Text(
+                                    _bulkEndDate != null
+                                        ? _dateFormat.format(_bulkEndDate!)
+                                        : 'Bitiş',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  onPressed: () async {
+                                    final d = await showDatePicker(
+                                      context: context,
+                                      initialDate: _bulkEndDate ?? _bulkStartDate ?? DateTime.now(),
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime(2030),
+                                      locale: const Locale('tr', 'TR'),
+                                    );
+                                    if (d != null) setState(() => _bulkEndDate = d);
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                    side: BorderSide(
+                                        color: _bulkEndDate != null
+                                            ? const Color(0xFF2563EB)
+                                            : Colors.grey.shade400),
+                                  ),
+                                ),
+                              ),
+                            ]),
+                            if (_bulkStartDate != null && _bulkEndDate != null) ...[
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton(
+                                  onPressed: _applyingBulkDates ? null : () => _applyBulkDates(docs),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  child: _applyingBulkDates
+                                      ? const SizedBox(
+                                          width: 18, height: 18,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                      : Text('${docs.length} Taslağa Uygula',
+                                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
                 // Draft items
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
@@ -2108,6 +2222,37 @@ Kurallar:
         ],
       ),
     );
+  }
+
+  Future<void> _applyBulkDates(List<DocumentSnapshot> docs) async {
+    if (_bulkStartDate == null || _bulkEndDate == null) return;
+    setState(() => _applyingBulkDates = true);
+    try {
+      final startTs = Timestamp.fromDate(_bulkStartDate!);
+      final endTs   = Timestamp.fromDate(_bulkEndDate!);
+      final batch   = FirebaseFirestore.instance.batch();
+      for (final doc in docs) {
+        batch.update(doc.reference, {'startDate': startTs, 'endDate': endTs});
+      }
+      await batch.commit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${docs.length} taslağın tarihi güncellendi.'),
+          backgroundColor: const Color(0xFF16A34A),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Hata: $e'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _applyingBulkDates = false);
+    }
   }
 
   void _confirmDeleteAllDrafts(List<DocumentSnapshot> docs) {

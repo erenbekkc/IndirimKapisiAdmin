@@ -339,8 +339,10 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final df         = DateFormat('d MMM', 'tr_TR');
-    final monthKeys  = _monthKeys();
+    final df             = DateFormat('d MMM', 'tr_TR');
+    final monthKeys      = _monthKeys();
+    final now            = DateTime.now();
+    final currentMonthKey = '${now.year}-${now.month.toString().padLeft(2, '0')}';
 
     return _loading
         ? const Center(child: CircularProgressIndicator())
@@ -426,8 +428,8 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
                               uniqueMap,
                               _monthlyUniquePages[key] ?? 0,
                               (p) => setState(() => _monthlyUniquePages[key] = p),
-                              newCities:      _newCitiesToday,
-                              newCountCities: _newUniqueUserCities,
+                              newCities:      key == currentMonthKey ? _newCitiesToday      : const {},
+                              newCountCities: key == currentMonthKey ? _newUniqueUserCities : const {},
                             ),
                           ),
                         ),
@@ -443,7 +445,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
                               sessionMap,
                               _monthlySessionPages[key] ?? 0,
                               (p) => setState(() => _monthlySessionPages[key] = p),
-                              newCities: _newCitiesToday,
                             ),
                           ),
                         ),
