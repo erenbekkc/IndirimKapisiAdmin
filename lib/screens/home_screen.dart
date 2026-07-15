@@ -5,6 +5,7 @@ import 'add_campaign_screen.dart';
 import 'markets_screen.dart';
 import 'categories_screen.dart';
 import 'katalog_giris_screen.dart';
+import 'gemini_katalog_screen.dart';
 import 'raporlar_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
     MarketsScreen(),
     CategoriesScreen(),
     KatalogGirisScreen(),
+    GeminiKatalogScreen(),
     RaporlarScreen(),
   ];
 
@@ -75,7 +77,12 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.document_scanner_outlined),
             activeIcon: Icon(Icons.document_scanner),
-            label: 'Katalog',
+            label: 'Claude Katalog',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.auto_awesome_outlined),
+            activeIcon: Icon(Icons.auto_awesome),
+            label: 'Gemini Katalog',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.bar_chart_outlined),

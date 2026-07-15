@@ -9,125 +9,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
-
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
-
-class CatalogDraft {
-  String productName;
-  String marketId;
-  String marketName;
-  String categoryId;
-  String categoryName;
-  String campaignType; // 'priceDiscount' | 'buyOneGetOne' | 'secondDiscount'
-  double? originalPrice;
-  double? discountedPrice;
-  int? discountRate;
-  double? productPrice;
-  DateTime? startDate;
-  DateTime? endDate;
-  bool selected;
-  String? productImageUrl;
-
-  CatalogDraft({
-    required this.productName,
-    this.marketId = '',
-    this.marketName = '',
-    this.categoryId = '',
-    this.categoryName = '',
-    this.campaignType = 'priceDiscount',
-    this.originalPrice,
-    this.discountedPrice,
-    this.discountRate,
-    this.productPrice,
-    this.startDate,
-    this.endDate,
-    this.selected = true,
-    this.productImageUrl,
-  });
-
-  factory CatalogDraft.fromAiJson(Map<String, dynamic> json) {
-    double? parsePrice(dynamic v) {
-      if (v == null) return null;
-      if (v is num) return v.toDouble();
-      if (v is String) {
-        final c = v.replaceAll(',', '.').replaceAll(RegExp(r'[^\d.]'), '');
-        return double.tryParse(c);
-      }
-      return null;
-    }
-
-    DateTime? parseDate(String? s) {
-      if (s == null || s.isEmpty || s == 'null') return null;
-      try {
-        final p = s.split('.');
-        if (p.length == 3) {
-          final now = DateTime.now();
-          var date = DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0]));
-          // Geçmiş yıla atanmışsa mevcut yıla çek
-          if (date.year < now.year) {
-            date = DateTime(now.year, date.month, date.day);
-          }
-          return date;
-        }
-      } catch (_) {}
-      return null;
-    }
-
-    final orig = parsePrice(json['originalPrice']);
-    final disc = parsePrice(json['discountedPrice']);
-    return CatalogDraft(
-      productName: (json['productName'] as String? ?? '').trim(),
-      marketName: (json['marketName'] as String? ?? '').trim(),
-      categoryName: (json['categoryName'] as String? ?? '').trim(),
-      campaignType: (orig != null || disc != null) ? 'priceDiscount' : 'buyOneGetOne',
-      originalPrice: orig,
-      discountedPrice: disc,
-      startDate: parseDate(json['startDate'] as String?),
-      endDate: parseDate(json['endDate'] as String?),
-    );
-  }
-
-  Map<String, dynamic> toFirestore() {
-    final map = <String, dynamic>{
-      'productName': productName,
-      'marketId': marketId,
-      'marketName': marketName,
-      'categoryId': categoryId,
-      'categoryName': categoryName,
-      'campaignType': campaignType,
-      'startDate': startDate != null ? Timestamp.fromDate(startDate!) : null,
-      'endDate': endDate != null ? Timestamp.fromDate(endDate!) : null,
-      'productImageUrl': productImageUrl ?? '',
-      'createdAt': FieldValue.serverTimestamp(),
-      'status': 'draft',
-    };
-    if (campaignType == 'priceDiscount') {
-      map['originalPrice'] = originalPrice;
-      map['discountedPrice'] = discountedPrice;
-    } else if (campaignType == 'buyOneGetOne') {
-      map['productPrice'] = productPrice;
-    } else if (campaignType == 'secondDiscount') {
-      map['discountRate'] = discountRate;
-      map['productPrice'] = productPrice;
-    }
-    return map;
-  }
-}
+import 'katalog_giris_screen.dart' show CatalogDraft;
 
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
 
-class KatalogGirisScreen extends StatefulWidget {
-  const KatalogGirisScreen({super.key});
+class GeminiKatalogScreen extends StatefulWidget {
+  const GeminiKatalogScreen({super.key});
 
   @override
-  State<KatalogGirisScreen> createState() => _KatalogGirisScreenState();
+  State<GeminiKatalogScreen> createState() => _GeminiKatalogScreenState();
 }
 
-class _KatalogGirisScreenState extends State<KatalogGirisScreen>
+class _GeminiKatalogScreenState extends State<GeminiKatalogScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
@@ -136,7 +31,7 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
   Uint8List? _pickedPdfBytes;
   String? _pickedPdfName;
   bool _analyzing = false;
-  String? _analyzeStatus; // "Analiz ediliyor..." veya "Görsel X/Y yükleniyor..."
+  String? _analyzeStatus;
   List<CatalogDraft> _aiItems = [];
   String? _analyzeError;
 
@@ -147,12 +42,12 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
   DateTime? _bulkEndDate;
   bool _applyingBulkDates = false;
 
-  static const _anthropicKey   = 'anthropic_api_key';
-  static const _googleApiKey   = 'google_api_key';
-  static const _googleCxKey    = 'google_cx';
+  static const _geminiKey    = 'gemini_api_key';
+  static const _googleApiKey = 'google_api_key';
+  static const _googleCxKey  = 'google_cx';
 
   final _dateFormat = DateFormat('dd.MM.yyyy', 'tr_TR');
-  final _priceFmt = NumberFormat('#,##0.00', 'tr_TR');
+  final _priceFmt   = NumberFormat('#,##0.00', 'tr_TR');
 
   @override
   void initState() {
@@ -167,7 +62,7 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
   }
 
   // -----------------------------------------------------------------------
-  // Campaign type card helper (used inside edit sheet StatefulBuilder)
+  // Campaign type card helper
   // -----------------------------------------------------------------------
 
   Widget _editTypeCard(
@@ -226,10 +121,9 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
 
   void _showSettingsDialog() async {
     final prefs = await SharedPreferences.getInstance();
-    final anthropicCtrl = TextEditingController(text: prefs.getString(_anthropicKey) ?? '');
-    final googleApiCtrl  = TextEditingController(text: prefs.getString(_googleApiKey) ?? '');
-    final googleCxCtrl   = TextEditingController(text: prefs.getString(_googleCxKey) ?? '');
-    bool obscureA = true;
+    final geminiCtrl    = TextEditingController(text: prefs.getString(_geminiKey) ?? '');
+    final googleApiCtrl = TextEditingController(text: prefs.getString(_googleApiKey) ?? '');
+    final googleCxCtrl  = TextEditingController(text: prefs.getString(_googleCxKey) ?? '');
     bool obscureG = true;
 
     if (!mounted) return;
@@ -247,32 +141,27 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
-                  controller: anthropicCtrl,
-                  obscureText: obscureA,
+                  controller: geminiCtrl,
+                  obscureText: obscureG,
                   decoration: InputDecoration(
-                    labelText: 'Anthropic API Key',
+                    labelText: 'Gemini API Key',
                     border: const OutlineInputBorder(),
-                    hintText: 'sk-ant-...',
-                    helperText: 'Broşür analizi için (console.anthropic.com)',
+                    hintText: 'AIzaSy...',
+                    helperText: 'Broşür analizi için (aistudio.google.com)',
                     suffixIcon: IconButton(
-                      icon: Icon(obscureA ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                      onPressed: () => setD(() => obscureA = !obscureA),
+                      icon: Icon(obscureG ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                      onPressed: () => setD(() => obscureG = !obscureG),
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: googleApiCtrl,
-                  obscureText: obscureG,
-                  decoration: InputDecoration(
-                    labelText: 'Google API Key',
-                    border: const OutlineInputBorder(),
+                  decoration: const InputDecoration(
+                    labelText: 'Google API Key (görsel arama)',
+                    border: OutlineInputBorder(),
                     hintText: 'AIzaSy...',
-                    helperText: 'Görsel arama için (console.cloud.google.com)',
-                    suffixIcon: IconButton(
-                      icon: Icon(obscureG ? Icons.visibility_outlined : Icons.visibility_off_outlined),
-                      onPressed: () => setD(() => obscureG = !obscureG),
-                    ),
+                    helperText: 'console.cloud.google.com',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -292,9 +181,9 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('İptal')),
             ElevatedButton(
               onPressed: () async {
-                await prefs.setString(_anthropicKey, anthropicCtrl.text.trim());
-                await prefs.setString(_googleApiKey,  googleApiCtrl.text.trim());
-                await prefs.setString(_googleCxKey,   googleCxCtrl.text.trim());
+                await prefs.setString(_geminiKey,    geminiCtrl.text.trim());
+                await prefs.setString(_googleApiKey, googleApiCtrl.text.trim());
+                await prefs.setString(_googleCxKey,  googleCxCtrl.text.trim());
                 if (ctx.mounted) Navigator.pop(ctx);
               },
               style: ElevatedButton.styleFrom(
@@ -308,7 +197,7 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
   }
 
   // -----------------------------------------------------------------------
-  // Analiz Tab – image pick & analyze
+  // File pick
   // -----------------------------------------------------------------------
 
   Future<void> _pickFile() async {
@@ -375,28 +264,35 @@ class _KatalogGirisScreenState extends State<KatalogGirisScreen>
     }
   }
 
+  // -----------------------------------------------------------------------
+  // Analyze — Gemini API
+  // -----------------------------------------------------------------------
+
   Future<void> _analyze() async {
     if (_pickedImage == null && _pickedPdfBytes == null) return;
 
-    // Önce Firestore config/ai'dan çek, yoksa SharedPreferences'a bak
     String apiKey = '';
     try {
-      final doc = await FirebaseFirestore.instance.collection('config').doc('ai').get();
+      final doc = await FirebaseFirestore.instance.collection('config').doc('gemini').get();
       apiKey = (doc.data()?['apiKey'] as String? ?? '').trim();
     } catch (_) {}
     if (apiKey.isEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      apiKey = prefs.getString(_anthropicKey) ?? '';
+      apiKey = prefs.getString(_geminiKey) ?? '';
     }
     if (apiKey.isEmpty) {
       _showSettingsDialog();
       return;
     }
 
-    setState(() { _analyzing = true; _analyzeStatus = 'Analiz ediliyor...'; _analyzeError = null; _aiItems = []; });
+    setState(() {
+      _analyzing = true;
+      _analyzeStatus = 'Analiz ediliyor...';
+      _analyzeError = null;
+      _aiItems = [];
+    });
 
     try {
-      // Firestore'dan kategori listesini çek
       final catsSnap = await FirebaseFirestore.instance.collection('categories').orderBy('name').get();
       final categoryNames = catsSnap.docs.map((d) => d.get('name') as String).join(', ');
 
@@ -417,59 +313,48 @@ Kurallar:
 
       final finalPrompt = prompt.replaceFirst('CATEGORY_NAMES', categoryNames);
 
-      List<Map<String, dynamic>> content;
-      Map<String, String> extraHeaders = {};
+      final String base64Data;
+      final String mimeType;
 
       if (_pickedPdfBytes != null) {
-        // PDF modu
-        final base64Pdf = base64Encode(_pickedPdfBytes!);
-        content = [
-          {
-            'type': 'document',
-            'source': {
-              'type': 'base64',
-              'media_type': 'application/pdf',
-              'data': base64Pdf,
-            },
-          },
-          {'type': 'text', 'text': finalPrompt},
-        ];
-        extraHeaders['anthropic-beta'] = 'pdfs-2024-09-25';
+        base64Data = base64Encode(_pickedPdfBytes!);
+        mimeType = 'application/pdf';
       } else {
-        // Resim modu
         final bytes = await File(_pickedImage!.path).readAsBytes();
-        final base64Image = base64Encode(bytes);
+        base64Data = base64Encode(bytes);
         final ext = _pickedImage!.name.split('.').last.toLowerCase();
-        final mediaType = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
-        content = [
-          {
-            'type': 'image',
-            'source': {'type': 'base64', 'media_type': mediaType, 'data': base64Image},
-          },
-          {'type': 'text', 'text': finalPrompt},
-        ];
+        mimeType = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
       }
 
       final resp = await http.post(
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-        headers: {
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-          ...extraHeaders,
-        },
+        Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey',
+        ),
+        headers: {'content-type': 'application/json'},
         body: jsonEncode({
-          'model': 'claude-opus-4-6',
-          'max_tokens': 4096,
-          'messages': [
-            {'role': 'user', 'content': content},
+          'contents': [
+            {
+              'parts': [
+                {
+                  'inline_data': {
+                    'mime_type': mimeType,
+                    'data': base64Data,
+                  }
+                },
+                {'text': finalPrompt},
+              ]
+            }
           ],
+          'generationConfig': {
+            'temperature': 0.1,
+            'maxOutputTokens': 8192,
+          },
         }),
       ).timeout(const Duration(seconds: 120));
 
       if (resp.statusCode == 200) {
         final body = jsonDecode(utf8.decode(resp.bodyBytes));
-        final text = (body['content'] as List).first['text'] as String;
+        final text = (body['candidates'] as List).first['content']['parts'][0]['text'] as String;
         final s = text.indexOf('{');
         final e = text.lastIndexOf('}') + 1;
         if (s >= 0 && e > s) {
@@ -490,8 +375,12 @@ Kurallar:
         }
       } else {
         String msg;
-        try { msg = (jsonDecode(resp.body)['error']?['message'] ?? 'HTTP ${resp.statusCode}'); }
-        catch (_) { msg = 'HTTP ${resp.statusCode}'; }
+        try {
+          final errBody = jsonDecode(resp.body);
+          msg = (errBody['error']?['message'] as String?) ?? 'HTTP ${resp.statusCode}';
+        } catch (_) {
+          msg = 'HTTP ${resp.statusCode}';
+        }
         setState(() => _analyzeError = 'API Hatası: $msg');
       }
     } on SocketException {
@@ -504,7 +393,7 @@ Kurallar:
   }
 
   // -----------------------------------------------------------------------
-  // Her ürün için DuckDuckGo ile internet üzerinden görsel bul
+  // Image search
   // -----------------------------------------------------------------------
 
   Future<String?> _searchImageInCampaigns(String productName) async {
@@ -530,12 +419,10 @@ Kurallar:
       final item = _aiItems[i];
       if (mounted) setState(() => _analyzeStatus = 'Görsel ${i + 1}/${_aiItems.length} aranıyor...');
 
-      // Önce kendi kampanyalarımıza bak
       String? imageUrl = await _searchImageInCampaigns(item.productName);
       if (imageUrl != null) {
         fromCache++;
       } else {
-        // Bulunamazsa DuckDuckGo'ya git
         imageUrl = await _searchImageDuckDuckGo(item.productName);
       }
 
@@ -547,7 +434,9 @@ Kurallar:
     }
 
     if (mounted) {
-      final cacheInfo = fromCache > 0 ? ' ($fromCache kampanyadan, ${found - fromCache} internet)' : '';
+      final cacheInfo = fromCache > 0
+          ? ' ($fromCache kampanyadan, ${found - fromCache} internet)'
+          : '';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(found > 0
             ? '$found/${_aiItems.length} ürün için görsel bulundu.$cacheInfo'
@@ -559,7 +448,6 @@ Kurallar:
     }
   }
 
-  // Firebase Function üzerinden görsel arama (DuckDuckGo + OpenFoodFacts + Bing fallback)
   Future<String?> _searchImageDuckDuckGo(String query) async {
     try {
       final resp = await http.get(
@@ -572,7 +460,7 @@ Kurallar:
       }
     } catch (e, s) {
       FirebaseFirestore.instance.collection('app_logs').add({
-        'location':     'imageSearch',
+        'location':     'geminiImageSearch',
         'errorType':    e.runtimeType.toString(),
         'errorMessage': e.toString(),
         'stackSummary': s.toString().split('\n').take(4).join(' | '),
@@ -582,8 +470,6 @@ Kurallar:
     }
     return null;
   }
-
-  Future<String?> _searchImageYandex(String query) async => null;
 
   // -----------------------------------------------------------------------
   // Edit bottom sheet
@@ -601,38 +487,35 @@ Kurallar:
         text: draft.productPrice != null ? draft.productPrice!.toStringAsFixed(2) : '');
 
     String campaignType = draft.campaignType;
-    String marketId = draft.marketId;
+    String marketId   = draft.marketId;
     String marketName = draft.marketName;
-    String categoryId = draft.categoryId;
+    String categoryId   = draft.categoryId;
     String categoryName = draft.categoryName;
     DateTime? startDate = draft.startDate;
-    DateTime? endDate = draft.endDate;
-    String? imageUrl = draft.productImageUrl;
+    DateTime? endDate   = draft.endDate;
+    String? imageUrl    = draft.productImageUrl;
     bool uploadingImage = false;
     bool searchingImage = false;
 
-    // Pre-fetch markets & categories
     final marketsSnap = await FirebaseFirestore.instance.collection('markets').orderBy('name').get();
-    final catsSnap = await FirebaseFirestore.instance.collection('categories').orderBy('name').get();
+    final catsSnap    = await FirebaseFirestore.instance.collection('categories').orderBy('name').get();
 
-    // marketId boşsa isimle eşleştir
     if (marketId.isEmpty && marketName.isNotEmpty) {
       final match = marketsSnap.docs.where((d) =>
         (d.get('name') as String).toLowerCase() == marketName.toLowerCase()
       ).firstOrNull;
       if (match != null) {
-        marketId = match.id;
+        marketId   = match.id;
         marketName = match.get('name') as String;
       }
     }
 
-    // categoryId boşsa isimle eşleştir
     if (categoryId.isEmpty && categoryName.isNotEmpty) {
       final match = catsSnap.docs.where((d) =>
         (d.get('name') as String).toLowerCase() == categoryName.toLowerCase()
       ).firstOrNull;
       if (match != null) {
-        categoryId = match.id;
+        categoryId   = match.id;
         categoryName = match.get('name') as String;
       }
     }
@@ -645,13 +528,13 @@ Kurallar:
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setS) => Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, MediaQuery.of(ctx).viewInsets.bottom + MediaQuery.of(ctx).padding.bottom + 16),
+          padding: EdgeInsets.fromLTRB(16, 16, 16,
+              MediaQuery.of(ctx).viewInsets.bottom + MediaQuery.of(ctx).padding.bottom + 16),
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Handle
                 Center(
                   child: Container(
                     width: 40, height: 4,
@@ -799,7 +682,6 @@ Kurallar:
                 ),
                 const SizedBox(height: 12),
 
-                // Ürün adı
                 TextField(
                   controller: prodCtrl,
                   decoration: const InputDecoration(
@@ -810,7 +692,6 @@ Kurallar:
                 ),
                 const SizedBox(height: 12),
 
-                // Market dropdown
                 DropdownButtonFormField<String>(
                   value: marketsSnap.docs.any((d) => d.id == marketId) ? marketId : null,
                   decoration: const InputDecoration(
@@ -825,14 +706,13 @@ Kurallar:
                   onChanged: (id) {
                     if (id == null) return;
                     setS(() {
-                      marketId = id;
+                      marketId   = id;
                       marketName = marketsSnap.docs.firstWhere((d) => d.id == id).get('name') as String;
                     });
                   },
                 ),
                 const SizedBox(height: 12),
 
-                // Kategori dropdown
                 DropdownButtonFormField<String>(
                   value: catsSnap.docs.any((d) => d.id == categoryId) ? categoryId : null,
                   decoration: const InputDecoration(
@@ -842,10 +722,10 @@ Kurallar:
                   ),
                   hint: const Text('Kategori seçin'),
                   items: catsSnap.docs.map((d) {
-                    final data = d.data() as Map<String, dynamic>;
+                    final data    = d.data() as Map<String, dynamic>;
                     final iconUrl = data['iconUrl'] as String?;
-                    final icon = data['icon'] as String? ?? '';
-                    final name = data['name'] as String? ?? '';
+                    final icon    = data['icon'] as String? ?? '';
+                    final name    = data['name'] as String? ?? '';
                     return DropdownMenuItem(
                       value: d.id,
                       child: Row(
@@ -872,14 +752,13 @@ Kurallar:
                   onChanged: (id) {
                     if (id == null) return;
                     setS(() {
-                      categoryId = id;
+                      categoryId   = id;
                       categoryName = catsSnap.docs.firstWhere((d) => d.id == id).get('name') as String;
                     });
                   },
                 ),
                 const SizedBox(height: 12),
 
-                // Kampanya Şekli
                 const Text('Kampanya Şekli',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.grey)),
                 const SizedBox(height: 8),
@@ -892,7 +771,6 @@ Kurallar:
                 ],
                 const SizedBox(height: 12),
 
-                // Tipe göre fiyat alanları
                 if (campaignType == 'priceDiscount') ...[
                   Row(
                     children: [
@@ -970,7 +848,6 @@ Kurallar:
                   const SizedBox(height: 12),
                 ],
 
-                // Tarih aralığı
                 InkWell(
                   onTap: () async {
                     final picked = await showDateRangePicker(
@@ -1008,35 +885,34 @@ Kurallar:
                 ),
                 const SizedBox(height: 20),
 
-                // Kaydet button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () {
-                      draft.productName = prodCtrl.text.trim();
-                      draft.marketId = marketId;
-                      draft.marketName = marketName;
-                      draft.categoryId = categoryId;
-                      draft.categoryName = categoryName;
-                      draft.campaignType = campaignType;
-                      draft.startDate = startDate;
-                      draft.endDate = endDate;
+                      draft.productName   = prodCtrl.text.trim();
+                      draft.marketId      = marketId;
+                      draft.marketName    = marketName;
+                      draft.categoryId    = categoryId;
+                      draft.categoryName  = categoryName;
+                      draft.campaignType  = campaignType;
+                      draft.startDate     = startDate;
+                      draft.endDate       = endDate;
                       draft.productImageUrl = imageUrl;
                       if (campaignType == 'priceDiscount') {
-                        draft.originalPrice = double.tryParse(origCtrl.text.trim());
+                        draft.originalPrice  = double.tryParse(origCtrl.text.trim());
                         draft.discountedPrice = double.tryParse(discCtrl.text.trim());
-                        draft.discountRate = null;
-                        draft.productPrice = null;
+                        draft.discountRate   = null;
+                        draft.productPrice   = null;
                       } else if (campaignType == 'buyOneGetOne') {
-                        draft.originalPrice = null;
+                        draft.originalPrice  = null;
                         draft.discountedPrice = null;
-                        draft.discountRate = null;
-                        draft.productPrice = double.tryParse(prodPriceCtrl.text.trim());
+                        draft.discountRate   = null;
+                        draft.productPrice   = double.tryParse(prodPriceCtrl.text.trim());
                       } else if (campaignType == 'secondDiscount') {
-                        draft.originalPrice = null;
+                        draft.originalPrice  = null;
                         draft.discountedPrice = null;
-                        draft.discountRate = int.tryParse(discRateCtrl.text.trim());
-                        draft.productPrice = double.tryParse(prodPriceCtrl.text.trim());
+                        draft.discountRate   = int.tryParse(discRateCtrl.text.trim());
+                        draft.productPrice   = double.tryParse(prodPriceCtrl.text.trim());
                       }
                       Navigator.pop(ctx);
                       onSaved?.call();
@@ -1098,11 +974,9 @@ Kurallar:
   Future<void> _publishSelected() async {
     if (_selectedDraftIds.isEmpty) return;
 
-    final draftsCol = FirebaseFirestore.instance.collection('catalog_drafts');
-
-    // Market ve kategori adından ID'leri çözmek için koleksiyonları önceden yükle
+    final draftsCol   = FirebaseFirestore.instance.collection('catalog_drafts');
     final marketsSnap = await FirebaseFirestore.instance.collection('markets').get();
-    final catsSnap = await FirebaseFirestore.instance.collection('categories').get();
+    final catsSnap    = await FirebaseFirestore.instance.collection('categories').get();
 
     String resolveMarketId(String id, String name) {
       if (id.isNotEmpty) return id;
@@ -1144,24 +1018,23 @@ Kurallar:
       return name;
     }
 
-    // Zorunlu alan kontrolü
     final List<String> eksikler = [];
     for (final id in _selectedDraftIds) {
       final doc = await draftsCol.doc(id).get();
       if (!doc.exists) continue;
       final data = doc.data()!;
-      final product = (data['productName'] as String? ?? '').trim();
-      final marketId = resolveMarketId(
+      final product    = (data['productName'] as String? ?? '').trim();
+      final marketId   = resolveMarketId(
           (data['marketId'] as String? ?? '').trim(),
           (data['marketName'] as String? ?? '').trim());
       final categoryId = resolveCategoryId(
           (data['categoryId'] as String? ?? '').trim(),
           (data['categoryName'] as String? ?? '').trim());
-      final startDate = data['startDate'] as Timestamp?;
-      final endDate = data['endDate'] as Timestamp?;
-
-      final imageUrl = (data['productImageUrl'] as String? ?? '').trim();
-      if (product.isEmpty || marketId.isEmpty || categoryId.isEmpty || startDate == null || endDate == null || imageUrl.isEmpty) {
+      final startDate  = data['startDate'] as Timestamp?;
+      final endDate    = data['endDate'] as Timestamp?;
+      final imageUrl   = (data['productImageUrl'] as String? ?? '').trim();
+      if (product.isEmpty || marketId.isEmpty || categoryId.isEmpty ||
+          startDate == null || endDate == null || imageUrl.isEmpty) {
         eksikler.add(product.isNotEmpty ? product : '(isimsiz ürün)');
       }
     }
@@ -1170,7 +1043,8 @@ Kurallar:
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-            '${eksikler.length} üründe eksik alan var:\n${eksikler.join(', ')}\n\nÜrün adı, market, kategori, tarih aralığı ve fotoğraf zorunludur.',
+            '${eksikler.length} üründe eksik alan var:\n${eksikler.join(', ')}\n\n'
+            'Ürün adı, market, kategori, tarih aralığı ve fotoğraf zorunludur.',
           ),
           backgroundColor: Colors.orange.shade700,
           duration: const Duration(seconds: 4),
@@ -1181,9 +1055,8 @@ Kurallar:
 
     setState(() => _publishing = true);
 
-    final campaignsCol = FirebaseFirestore.instance.collection('campaigns');
-
-    int published = 0;
+    final campaignsCol  = FirebaseFirestore.instance.collection('campaigns');
+    int published        = 0;
     final duplicateNames = <String>[];
 
     for (final id in _selectedDraftIds.toList()) {
@@ -1192,48 +1065,44 @@ Kurallar:
         if (!draftDoc.exists) continue;
         final data = draftDoc.data()!;
 
-        final campaignType = (data['campaignType'] as String? ?? 'priceDiscount');
-        final oldPrice = (data['originalPrice'] as num?)?.toDouble() ?? 0;
-        final newPrice = (data['discountedPrice'] as num?)?.toDouble() ?? 0;
-        final productPrice = (data['productPrice'] as num?)?.toDouble() ?? 0;
-        final discountRate = (data['discountRate'] as num?)?.toInt() ?? 0;
-        final productName = data['productName'] as String? ?? '';
+        final campaignType  = (data['campaignType'] as String? ?? 'priceDiscount');
+        final oldPrice      = (data['originalPrice'] as num?)?.toDouble() ?? 0;
+        final newPrice      = (data['discountedPrice'] as num?)?.toDouble() ?? 0;
+        final productPrice  = (data['productPrice'] as num?)?.toDouble() ?? 0;
+        final discountRate  = (data['discountRate'] as num?)?.toInt() ?? 0;
+        final productName   = data['productName'] as String? ?? '';
 
-        final mId = resolveMarketId(
-            (data['marketId'] as String? ?? '').trim(),
-            (data['marketName'] as String? ?? '').trim());
-        final mName = resolveMarketName(
-            (data['marketId'] as String? ?? '').trim(),
-            (data['marketName'] as String? ?? '').trim());
-        final cId = resolveCategoryId(
-            (data['categoryId'] as String? ?? '').trim(),
-            (data['categoryName'] as String? ?? '').trim());
-        final cName = resolveCategoryName(
-            (data['categoryId'] as String? ?? '').trim(),
-            (data['categoryName'] as String? ?? '').trim());
+        final mId   = resolveMarketId((data['marketId'] as String? ?? '').trim(), (data['marketName'] as String? ?? '').trim());
+        final mName = resolveMarketName((data['marketId'] as String? ?? '').trim(), (data['marketName'] as String? ?? '').trim());
+        final cId   = resolveCategoryId((data['categoryId'] as String? ?? '').trim(), (data['categoryName'] as String? ?? '').trim());
+        final cName = resolveCategoryName((data['categoryId'] as String? ?? '').trim(), (data['categoryName'] as String? ?? '').trim());
 
         String autoTitle;
         if (campaignType == 'buyOneGetOne') {
           autoTitle = productName.isNotEmpty ? '$productName - 1 Alana 1 Bedava' : '1 Alana 1 Bedava';
         } else if (campaignType == 'secondDiscount') {
-          autoTitle = productName.isNotEmpty ? '$productName - 1 Alana İkincisi %$discountRate İndirimli' : '1 Alana İkincisi %$discountRate İndirimli';
+          autoTitle = productName.isNotEmpty
+              ? '$productName - 1 Alana İkincisi %$discountRate İndirimli'
+              : '1 Alana İkincisi %$discountRate İndirimli';
         } else {
-          autoTitle = productName.isNotEmpty ? '$productName - ${oldPrice.toStringAsFixed(2)} TL yerine ${newPrice.toStringAsFixed(2)} TL' : 'Fiyat İndirimi';
+          autoTitle = productName.isNotEmpty
+              ? '$productName - ${oldPrice.toStringAsFixed(2)} TL yerine ${newPrice.toStringAsFixed(2)} TL'
+              : 'Fiyat İndirimi';
         }
 
         final campaignData = <String, dynamic>{
-          'product': productName,
-          'title': autoTitle,
-          'description': data['description'] ?? '',
-          'campaignType': campaignType,
-          'marketId': mId,
-          'marketName': mName,
-          'categoryId': cId,
-          'categoryName': cName,
-          'startDate': data['startDate'],
-          'endDate': data['endDate'],
+          'product':         productName,
+          'title':           autoTitle,
+          'description':     data['description'] ?? '',
+          'campaignType':    campaignType,
+          'marketId':        mId,
+          'marketName':      mName,
+          'categoryId':      cId,
+          'categoryName':    cName,
+          'startDate':       data['startDate'],
+          'endDate':         data['endDate'],
           'productImageUrl': data['productImageUrl'] ?? '',
-          'createdAt': FieldValue.serverTimestamp(),
+          'createdAt':       FieldValue.serverTimestamp(),
         };
 
         if (campaignType == 'priceDiscount') {
@@ -1246,7 +1115,6 @@ Kurallar:
           campaignData['productPrice'] = productPrice;
         }
 
-        // Mükerrerlik kontrolü: aynı ürün + market + bitiş tarihi varsa atla
         final endDate = data['endDate'];
         if (productName.isNotEmpty && mId.isNotEmpty && endDate != null) {
           final existing = await campaignsCol
@@ -1262,7 +1130,6 @@ Kurallar:
         }
 
         await campaignsCol.add(campaignData);
-
         await draftsCol.doc(id).delete();
         published++;
       } catch (_) {}
@@ -1311,7 +1178,7 @@ Kurallar:
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Claude Katalog'),
+        title: const Text('Gemini Katalog'),
         backgroundColor: const Color(0xFF2563EB),
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
@@ -1328,7 +1195,7 @@ Kurallar:
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white60,
           tabs: [
-            const Tab(text: 'Analiz', icon: Icon(Icons.document_scanner_outlined, size: 18)),
+            const Tab(text: 'Analiz', icon: Icon(Icons.auto_awesome_outlined, size: 18)),
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('catalog_drafts')
@@ -1382,7 +1249,6 @@ Kurallar:
       children: [
         CustomScrollView(
           slivers: [
-            // Image picker area
             SliverToBoxAdapter(
               child: GestureDetector(
                 onTap: _pickFile,
@@ -1461,7 +1327,6 @@ Kurallar:
               ),
             ),
 
-            // Analyze button
             if (_pickedImage != null || _pickedPdfBytes != null)
               SliverToBoxAdapter(
                 child: Padding(
@@ -1483,7 +1348,6 @@ Kurallar:
                 ),
               ),
 
-            // Error
             if (_analyzeError != null)
               SliverToBoxAdapter(
                 child: Padding(
@@ -1505,7 +1369,6 @@ Kurallar:
                 ),
               ),
 
-            // Results header
             if (_aiItems.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
@@ -1526,7 +1389,6 @@ Kurallar:
                 ),
               ),
 
-            // AI result items
             if (_aiItems.isNotEmpty)
               SliverList(
                 delegate: SliverChildBuilderDelegate(
@@ -1538,17 +1400,16 @@ Kurallar:
                 ),
               ),
 
-            // Empty state
-            if (_aiItems.isEmpty && !_analyzing && _pickedImage == null)
+            if (_aiItems.isEmpty && !_analyzing && _pickedImage == null && _pickedPdfBytes == null)
               SliverFillRemaining(
                 child: Center(
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.document_scanner_outlined, size: 72, color: Colors.grey.shade200),
+                    Icon(Icons.auto_awesome_outlined, size: 72, color: Colors.grey.shade200),
                     const SizedBox(height: 12),
                     Text('Broşür yükleyip analiz edin',
                         style: TextStyle(color: Colors.grey.shade400, fontSize: 15)),
                     const SizedBox(height: 4),
-                    Text('Ürünler otomatik listelenecek',
+                    Text('Gemini ile ürünler otomatik listelenecek',
                         style: TextStyle(color: Colors.grey.shade300, fontSize: 13)),
                   ]),
                 ),
@@ -1556,7 +1417,6 @@ Kurallar:
           ],
         ),
 
-        // FAB: Taslak Kaydet
         if (selectedCount > 0)
           Positioned(
             bottom: 16, left: 16, right: 16,
@@ -1619,7 +1479,6 @@ Kurallar:
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Badges
                           Row(children: [
                             if (item.marketName.isNotEmpty) ...[
                               _badge(item.marketName, const Color(0xFF2563EB)),
@@ -1676,7 +1535,6 @@ Kurallar:
                     ),
                   ],
                 ),
-                // Ürün fotoğrafı
                 if (item.productImageUrl != null && item.productImageUrl!.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   ClipRRect(
@@ -1743,7 +1601,6 @@ Kurallar:
           children: [
             CustomScrollView(
               slivers: [
-                // Header
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
@@ -1774,7 +1631,6 @@ Kurallar:
                   ),
                 ),
 
-                // Kampanya Tarih Girişi
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -1832,9 +1688,7 @@ Kurallar:
                                 child: OutlinedButton.icon(
                                   icon: const Icon(Icons.calendar_today_outlined, size: 15),
                                   label: Text(
-                                    _bulkEndDate != null
-                                        ? _dateFormat.format(_bulkEndDate!)
-                                        : 'Bitiş',
+                                    _bulkEndDate != null ? _dateFormat.format(_bulkEndDate!) : 'Bitiş',
                                     style: const TextStyle(fontSize: 13),
                                   ),
                                   onPressed: () async {
@@ -1885,7 +1739,6 @@ Kurallar:
                   ),
                 ),
 
-                // Draft items
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (ctx, i) {
@@ -1898,7 +1751,6 @@ Kurallar:
               ],
             ),
 
-            // Publish FAB
             if (_selectedDraftIds.isNotEmpty)
               Positioned(
                 bottom: 16, left: 16, right: 16,
@@ -1927,14 +1779,14 @@ Kurallar:
   }
 
   Widget _buildDraftCard(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final data       = doc.data() as Map<String, dynamic>;
     final isSelected = _selectedDraftIds.contains(doc.id);
 
-    final campaignType = data['campaignType'] as String? ?? 'priceDiscount';
-    final origPrice = (data['originalPrice'] as num?)?.toDouble();
-    final discPrice = (data['discountedPrice'] as num?)?.toDouble();
-    final discountRate = (data['discountRate'] as num?)?.toInt();
-    final productPrice = (data['productPrice'] as num?)?.toDouble();
+    final campaignType  = data['campaignType'] as String? ?? 'priceDiscount';
+    final origPrice     = (data['originalPrice'] as num?)?.toDouble();
+    final discPrice     = (data['discountedPrice'] as num?)?.toDouble();
+    final discountRate  = (data['discountRate'] as num?)?.toInt();
+    final productPrice  = (data['productPrice'] as num?)?.toDouble();
 
     final hasDiscount = campaignType == 'priceDiscount' &&
         origPrice != null && discPrice != null && origPrice > 0 && discPrice < origPrice;
@@ -1943,7 +1795,7 @@ Kurallar:
         : 0;
 
     final startTs = data['startDate'] as Timestamp?;
-    final endTs = data['endDate'] as Timestamp?;
+    final endTs   = data['endDate'] as Timestamp?;
 
     final missingFields = <String>[];
     if ((data['productName'] as String? ?? '').trim().isEmpty) missingFields.add('Ürün adı');
@@ -1954,18 +1806,18 @@ Kurallar:
     final hasWarning = missingFields.isNotEmpty;
 
     final draft = CatalogDraft(
-      productName: data['productName'] as String? ?? '',
-      marketId: data['marketId'] as String? ?? '',
-      marketName: data['marketName'] as String? ?? '',
-      categoryId: data['categoryId'] as String? ?? '',
-      categoryName: data['categoryName'] as String? ?? '',
-      campaignType: campaignType,
+      productName:   data['productName'] as String? ?? '',
+      marketId:      data['marketId'] as String? ?? '',
+      marketName:    data['marketName'] as String? ?? '',
+      categoryId:    data['categoryId'] as String? ?? '',
+      categoryName:  data['categoryName'] as String? ?? '',
+      campaignType:  campaignType,
       originalPrice: origPrice,
       discountedPrice: discPrice,
-      discountRate: discountRate,
-      productPrice: productPrice,
-      startDate: startTs?.toDate(),
-      endDate: endTs?.toDate(),
+      discountRate:  discountRate,
+      productPrice:  productPrice,
+      startDate:     startTs?.toDate(),
+      endDate:       endTs?.toDate(),
       productImageUrl: data['productImageUrl'] as String?,
     );
 
@@ -2083,7 +1935,6 @@ Kurallar:
                         ],
                       ),
                     ),
-                    // Edit & Delete buttons
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2109,7 +1960,6 @@ Kurallar:
                     ),
                   ],
                 ),
-                // Ürün fotoğrafı
                 if ((data['productImageUrl'] as String? ?? '').isNotEmpty) ...[
                   const SizedBox(height: 8),
                   GestureDetector(
@@ -2147,7 +1997,6 @@ Kurallar:
                     ),
                   ),
                 ],
-                // Bildirim önizlemesi
                 _buildNotifPreview(
                   data['productName'] as String? ?? '',
                   data['marketName'] as String? ?? '',
@@ -2171,10 +2020,10 @@ Kurallar:
 
     if (hasDiscount && pct > 0) {
       title = '📣 %$pct İndirim Başladı!';
-      body = '$productName — ${marketName.isNotEmpty ? "$marketName'da" : "markette"} %$pct indirimli! 🛒 Hemen incele.';
+      body  = '$productName — ${marketName.isNotEmpty ? "$marketName'da" : "markette"} %$pct indirimli! 🛒 Hemen incele.';
     } else {
       title = '📣 İndirim Başladı!';
-      body = '$productName — ${marketName.isNotEmpty ? "$marketName'da" : "markette"} indirimde! 🛒 Hemen incele.';
+      body  = '$productName — ${marketName.isNotEmpty ? "$marketName'da" : "markette"} indirimde! 🛒 Hemen incele.';
     }
 
     return Container(
@@ -2189,8 +2038,7 @@ Kurallar:
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 30,
-            height: 30,
+            width: 30, height: 30,
             decoration: BoxDecoration(
               color: const Color(0xFF16A34A),
               borderRadius: BorderRadius.circular(6),
@@ -2268,9 +2116,7 @@ Kurallar:
             onPressed: () async {
               Navigator.pop(ctx);
               final batch = FirebaseFirestore.instance.batch();
-              for (final doc in docs) {
-                batch.delete(doc.reference);
-              }
+              for (final doc in docs) { batch.delete(doc.reference); }
               await batch.commit();
               setState(() => _selectedDraftIds.clear());
             },
