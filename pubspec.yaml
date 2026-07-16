@@ -1,7 +1,7 @@
 name: indirim_radari_admin
 description: "İndirim Kapısı Admin Paneli"
 publish_to: 'none'
-version: 1.0.0+111
+version: 1.0.0+116
 
 environment:
   sdk: ^3.6.2
@@ -23,6 +23,7 @@ dependencies:
   image_picker: ^1.1.2
   file_picker: ^8.0.0
   shared_preferences: ^2.3.0
+  google_mlkit_text_recognition: ^0.13.0
 
 dev_dependencies:
   flutter_test:

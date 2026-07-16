@@ -501,9 +501,19 @@ Kurallar:
     final catsSnap    = await FirebaseFirestore.instance.collection('categories').orderBy('name').get();
 
     if (marketId.isEmpty && marketName.isNotEmpty) {
-      final match = marketsSnap.docs.where((d) =>
-        (d.get('name') as String).toLowerCase() == marketName.toLowerCase()
-      ).firstOrNull;
+      String normMkt(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s.\-_]'), '');
+      const aliases = <String, String>{
+        'money': 'migros', 'moneymigros': 'migros', 'carrfour': 'carrefour',
+        'carrefoursa': 'carrefour', 'sok': 'şok', 'sokmarket': 'şok',
+        'a101': 'a-101', 'bimeks': 'bim',
+      };
+      final norm = normMkt(marketName);
+      final aliasNorm = aliases[norm] ?? norm;
+      final match = marketsSnap.docs.where((d) {
+        final dbNorm = normMkt(d.get('name') as String);
+        return dbNorm == aliasNorm || dbNorm == norm ||
+               (d.get('name') as String).toLowerCase().contains(aliasNorm);
+      }).firstOrNull;
       if (match != null) {
         marketId   = match.id;
         marketName = match.get('name') as String;
@@ -978,11 +988,44 @@ Kurallar:
     final marketsSnap = await FirebaseFirestore.instance.collection('markets').get();
     final catsSnap    = await FirebaseFirestore.instance.collection('categories').get();
 
+    // Nokta, tire, boşluk sil ve küçük harfe çevir: "A.101" → "a101", "A-101" → "a101"
+    String normalizeMarket(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'[\s.\-_]'), '');
+
+    // AI'ın yanlış yazabileceği market adları için alias tablosu
+    const marketAliases = <String, String>{
+      'money': 'migros',
+      'moneymigros': 'migros',
+      'carrfour': 'carrefour',
+      'carrefoursa': 'carrefour',
+      'sok': 'şok',
+      'sokmarket': 'şok',
+      'a101': 'a-101',
+      'bimeks': 'bim',
+    };
+
     String resolveMarketId(String id, String name) {
       if (id.isNotEmpty) return id;
-      final match = marketsSnap.docs.where((d) =>
-          (d.get('name') as String).toLowerCase() == name.toLowerCase()).firstOrNull;
-      return match?.id ?? '';
+      try {
+        final normalized = normalizeMarket(name);
+        final aliasResolved = marketAliases[normalized] ?? normalized;
+        final match = marketsSnap.docs.firstWhere(
+          (d) {
+            final dbNorm = normalizeMarket(d.get('name') as String);
+            return dbNorm == aliasResolved || dbNorm == normalized;
+          },
+          orElse: () => marketsSnap.docs.firstWhere(
+            (d) => (d.get('name') as String).toLowerCase().contains(aliasResolved),
+            orElse: () => marketsSnap.docs.firstWhere(
+              (d) => aliasResolved.contains(normalizeMarket(d.get('name') as String)) && normalizeMarket(d.get('name') as String).length >= 3,
+              orElse: () => throw StateError(''),
+            ),
+          ),
+        );
+        return match.id;
+      } catch (_) {
+        return '';
+      }
     }
 
     String resolveMarketName(String id, String name) {
@@ -1032,10 +1075,14 @@ Kurallar:
           (data['categoryName'] as String? ?? '').trim());
       final startDate  = data['startDate'] as Timestamp?;
       final endDate    = data['endDate'] as Timestamp?;
-      final imageUrl   = (data['productImageUrl'] as String? ?? '').trim();
-      if (product.isEmpty || marketId.isEmpty || categoryId.isEmpty ||
-          startDate == null || endDate == null || imageUrl.isEmpty) {
-        eksikler.add(product.isNotEmpty ? product : '(isimsiz ürün)');
+      final missingFields = <String>[];
+      if (product.isEmpty) missingFields.add('ürün adı');
+      if (marketId.isEmpty) missingFields.add('market');
+      if (categoryId.isEmpty) missingFields.add('kategori');
+      if (startDate == null || endDate == null) missingFields.add('tarih');
+      if (missingFields.isNotEmpty) {
+        final label = product.isNotEmpty ? product : '(isimsiz ürün)';
+        eksikler.add('$label → ${missingFields.join(', ')}');
       }
     }
 
@@ -1043,11 +1090,10 @@ Kurallar:
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-            '${eksikler.length} üründe eksik alan var:\n${eksikler.join(', ')}\n\n'
-            'Ürün adı, market, kategori, tarih aralığı ve fotoğraf zorunludur.',
+            'Eksik alan var:\n${eksikler.join('\n')}',
           ),
           backgroundColor: Colors.orange.shade700,
-          duration: const Duration(seconds: 4),
+          duration: const Duration(seconds: 6),
         ));
       }
       return;
@@ -1802,7 +1848,7 @@ Kurallar:
     if ((data['marketId'] as String? ?? '').trim().isEmpty && (data['marketName'] as String? ?? '').trim().isEmpty) missingFields.add('Market');
     if ((data['categoryId'] as String? ?? '').trim().isEmpty && (data['categoryName'] as String? ?? '').trim().isEmpty) missingFields.add('Kategori');
     if (startTs == null || endTs == null) missingFields.add('Tarih aralığı');
-    if ((data['productImageUrl'] as String? ?? '').trim().isEmpty) missingFields.add('Fotoğraf');
+    // Fotoğraf zorunlu değil — yayın engellenmez
     final hasWarning = missingFields.isNotEmpty;
 
     final draft = CatalogDraft(
