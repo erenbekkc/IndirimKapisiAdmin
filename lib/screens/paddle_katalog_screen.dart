@@ -280,7 +280,7 @@ Kurallar:
 
       final geminiResp = await http.post(
         Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$geminiKey',
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$geminiKey',
         ),
         headers: {'content-type': 'application/json'},
         body: jsonEncode({

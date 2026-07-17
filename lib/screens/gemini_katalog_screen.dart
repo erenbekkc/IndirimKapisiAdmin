@@ -328,7 +328,7 @@ Kurallar:
 
       final resp = await http.post(
         Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey',
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey',
         ),
         headers: {'content-type': 'application/json'},
         body: jsonEncode({
@@ -398,15 +398,55 @@ Kurallar:
 
   Future<String?> _searchImageInCampaigns(String productName) async {
     try {
-      final snap = await FirebaseFirestore.instance
+      // 1. Tam eşleşme
+      final exactSnap = await FirebaseFirestore.instance
           .collection('campaigns')
           .where('product', isEqualTo: productName)
           .limit(5)
           .get();
-      for (final doc in snap.docs) {
+      for (final doc in exactSnap.docs) {
         final url = (doc.data()['productImageUrl'] as String? ?? '').trim();
         if (url.isNotEmpty) return url;
       }
+
+      // 2. Kelime örtüşme skoru (Jaccard ≥ 0.6)
+      Set<String> _words(String s) => s
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^\w\s]'), ' ')
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length > 1)
+          .toSet();
+
+      final queryWords = _words(productName);
+      if (queryWords.isEmpty) return null;
+
+      final allSnap = await FirebaseFirestore.instance
+          .collection('campaigns')
+          .where('productImageUrl', isGreaterThan: '')
+          .limit(300)
+          .get();
+
+      String? bestUrl;
+      double bestScore = 0;
+
+      for (final doc in allSnap.docs) {
+        final data = doc.data();
+        final candidate = (data['product'] as String? ?? '').trim();
+        final url = (data['productImageUrl'] as String? ?? '').trim();
+        if (url.isEmpty || candidate.isEmpty) continue;
+
+        final candWords = _words(candidate);
+        final intersection = queryWords.intersection(candWords).length;
+        final union = queryWords.union(candWords).length;
+        final score = union == 0 ? 0.0 : intersection / union;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestUrl = url;
+        }
+      }
+
+      if (bestScore >= 0.6) return bestUrl;
     } catch (_) {}
     return null;
   }
@@ -788,7 +828,7 @@ Kurallar:
                         child: TextField(
                           controller: origCtrl,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                           decoration: const InputDecoration(
                             labelText: 'Eski Fiyat',
                             border: OutlineInputBorder(),
@@ -804,7 +844,7 @@ Kurallar:
                         child: TextField(
                           controller: discCtrl,
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                           decoration: const InputDecoration(
                             labelText: 'Yeni Fiyat',
                             border: OutlineInputBorder(),
@@ -820,7 +860,7 @@ Kurallar:
                   TextField(
                     controller: prodPriceCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                     decoration: const InputDecoration(
                       labelText: 'Ürün Fiyatı (opsiyonel)',
                       border: OutlineInputBorder(),
@@ -847,7 +887,7 @@ Kurallar:
                   TextField(
                     controller: prodPriceCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                     decoration: const InputDecoration(
                       labelText: 'Ürün Fiyatı (opsiyonel)',
                       border: OutlineInputBorder(),
@@ -909,20 +949,20 @@ Kurallar:
                       draft.endDate       = endDate;
                       draft.productImageUrl = imageUrl;
                       if (campaignType == 'priceDiscount') {
-                        draft.originalPrice  = double.tryParse(origCtrl.text.trim());
-                        draft.discountedPrice = double.tryParse(discCtrl.text.trim());
+                        draft.originalPrice  = double.tryParse(origCtrl.text.trim().replaceAll(',', '.'));
+                        draft.discountedPrice = double.tryParse(discCtrl.text.trim().replaceAll(',', '.'));
                         draft.discountRate   = null;
                         draft.productPrice   = null;
                       } else if (campaignType == 'buyOneGetOne') {
                         draft.originalPrice  = null;
                         draft.discountedPrice = null;
                         draft.discountRate   = null;
-                        draft.productPrice   = double.tryParse(prodPriceCtrl.text.trim());
+                        draft.productPrice   = double.tryParse(prodPriceCtrl.text.trim().replaceAll(',', '.'));
                       } else if (campaignType == 'secondDiscount') {
                         draft.originalPrice  = null;
                         draft.discountedPrice = null;
                         draft.discountRate   = int.tryParse(discRateCtrl.text.trim());
-                        draft.productPrice   = double.tryParse(prodPriceCtrl.text.trim());
+                        draft.productPrice   = double.tryParse(prodPriceCtrl.text.trim().replaceAll(',', '.'));
                       }
                       Navigator.pop(ctx);
                       onSaved?.call();

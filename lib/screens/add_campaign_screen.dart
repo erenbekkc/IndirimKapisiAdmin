@@ -91,7 +91,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
   }
 
   String _buildSecondDiscountHelper() {
-    final price = double.tryParse(_productPriceController.text.trim());
+    final price = double.tryParse(_productPriceController.text.trim().replaceAll(',', '.'));
     final rate = int.tryParse(_discountRateController.text.trim());
     if (price == null || rate == null || price <= 0) return '2. ürün indirimli fiyatı otomatik hesaplanır';
     final discounted = price * (1 - rate / 100);
@@ -230,13 +230,13 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
           'createdAt': FieldValue.serverTimestamp(),
         };
         if (_campaignType == CampaignType.buyOneGetOne) {
-          draftData['productPrice'] = double.tryParse(_productPriceController.text.trim()) ?? 0;
+          draftData['productPrice'] = double.tryParse(_productPriceController.text.trim().replaceAll(',', '.')) ?? 0;
         } else if (_campaignType == CampaignType.priceDiscount) {
-          draftData['originalPrice'] = double.tryParse(_oldPriceController.text.trim()) ?? 0;
-          draftData['discountedPrice'] = double.tryParse(_newPriceController.text.trim()) ?? 0;
+          draftData['originalPrice'] = double.tryParse(_oldPriceController.text.trim().replaceAll(',', '.')) ?? 0;
+          draftData['discountedPrice'] = double.tryParse(_newPriceController.text.trim().replaceAll(',', '.')) ?? 0;
         } else if (_campaignType == CampaignType.secondDiscount) {
           draftData['discountRate'] = int.tryParse(_discountRateController.text.trim()) ?? 0;
-          draftData['productPrice'] = double.tryParse(_productPriceController.text.trim()) ?? 0;
+          draftData['productPrice'] = double.tryParse(_productPriceController.text.trim().replaceAll(',', '.')) ?? 0;
         }
         await FirebaseFirestore.instance.collection('catalog_drafts').add(draftData);
       } else {
@@ -256,13 +256,13 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
           'productImageUrl': productImageUrl ?? '',
         };
         if (_campaignType == CampaignType.buyOneGetOne) {
-          editData['productPrice'] = double.tryParse(_productPriceController.text.trim()) ?? 0;
+          editData['productPrice'] = double.tryParse(_productPriceController.text.trim().replaceAll(',', '.')) ?? 0;
         } else if (_campaignType == CampaignType.priceDiscount) {
-          editData['oldPrice'] = double.tryParse(_oldPriceController.text.trim()) ?? 0;
-          editData['newPrice'] = double.tryParse(_newPriceController.text.trim()) ?? 0;
+          editData['oldPrice'] = double.tryParse(_oldPriceController.text.trim().replaceAll(',', '.')) ?? 0;
+          editData['newPrice'] = double.tryParse(_newPriceController.text.trim().replaceAll(',', '.')) ?? 0;
         } else if (_campaignType == CampaignType.secondDiscount) {
           editData['discountRate'] = int.tryParse(_discountRateController.text.trim()) ?? 0;
-          editData['productPrice'] = double.tryParse(_productPriceController.text.trim()) ?? 0;
+          editData['productPrice'] = double.tryParse(_productPriceController.text.trim().replaceAll(',', '.')) ?? 0;
         }
         await widget.campaignDoc!.reference.update(editData);
       }
@@ -428,8 +428,8 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
               ? '${market}\'da 2. ürüne indirim kampanyası başladı!'
               : 'Kampanya detayları girilince önizleme güncellenir.';
     } else {
-      final oldP = double.tryParse(_oldPriceController.text.trim());
-      final newP = double.tryParse(_newPriceController.text.trim());
+      final oldP = double.tryParse(_oldPriceController.text.trim().replaceAll(',', '.'));
+      final newP = double.tryParse(_newPriceController.text.trim().replaceAll(',', '.'));
       final pct = (oldP != null && newP != null && oldP > 0)
           ? '%${((oldP - newP) / oldP * 100).round()}'
           : '';
@@ -722,7 +722,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
           child: TextField(
             controller: _productPriceController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
               labelText: 'Ürün Fiyatı (opsiyonel)',
@@ -757,7 +757,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
               TextField(
                 controller: _productPriceController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                 decoration: InputDecoration(
                   labelText: 'Ürün Fiyatı (opsiyonel)',
                   hintText: '300.00',
@@ -781,7 +781,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                 child: TextField(
                   controller: _oldPriceController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                   decoration: const InputDecoration(
                     labelText: 'Eski Fiyat *',
                     hintText: '100',
@@ -798,7 +798,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
                 child: TextField(
                   controller: _newPriceController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.,]'))],
                   decoration: const InputDecoration(
                     labelText: 'Yeni Fiyat *',
                     hintText: '55',
