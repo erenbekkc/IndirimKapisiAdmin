@@ -268,7 +268,7 @@ class _AddCampaignScreenState extends State<AddCampaignScreen> {
       }
 
       if (mounted) {
-        if (Navigator.canPop(context)) {
+        if (widget.campaignDoc != null && Navigator.canPop(context)) {
           Navigator.pop(context);
         } else {
           // Sekme modunda: formu sıfırla

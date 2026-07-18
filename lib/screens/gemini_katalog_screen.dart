@@ -328,7 +328,7 @@ Kurallar:
 
       final resp = await http.post(
         Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey',
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=$apiKey',
         ),
         headers: {'content-type': 'application/json'},
         body: jsonEncode({
