@@ -26,7 +26,7 @@ jobs:
 
       - name: Fix pbxproj deployment target
         run: |
-          find ios -name "*.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = .*/IPHONEOS_DEPLOYMENT_TARGET = 14.0;/g' {} \;
+          find ios -name "*.pbxproj" -exec sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = .*/IPHONEOS_DEPLOYMENT_TARGET = 16.0;/g' {} \;
 
       - name: Flutter pub get
         run: |
