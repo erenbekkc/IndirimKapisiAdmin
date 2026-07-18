@@ -73,7 +73,7 @@ platform :ios do
       scheme: "Runner",
       configuration: "Release",
       export_method: "app-store",
-      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=8J5Q5D5DB9 PROVISIONING_PROFILE='#{profile_uuid}' CODE_SIGN_IDENTITY='iPhone Distribution'",
+      xcargs: "CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=8J5Q5D5DB9 CODE_SIGN_IDENTITY='iPhone Distribution'",
       export_options: {
         method: "app-store",
         teamID: "8J5Q5D5DB9",
