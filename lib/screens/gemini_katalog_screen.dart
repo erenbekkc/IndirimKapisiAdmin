@@ -300,7 +300,9 @@ class _GeminiKatalogScreenState extends State<GeminiKatalogScreen>
 
 SADECE aşağıdaki JSON formatında döndür, başka hiçbir metin ekleme:
 
-{"items":[{"marketName":"market adı (bulamazsan boş)","productName":"ürünün tam adı","categoryName":"aşağıdaki listeden en uygun kategori","originalPrice":sayı_veya_null,"discountedPrice":sayı_veya_null,"startDate":"GG.AA.YYYY_veya_null","endDate":"GG.AA.YYYY_veya_null"}]}
+{"items":[{"marketName":"ŞOK","productName":"Jacobs Filtre Kahve 250 g","categoryName":"Kahve & Çay","originalPrice":329.90,"discountedPrice":249.90,"startDate":"18.07.2026","endDate":"21.07.2026"}]}
+
+Yukarıdaki örnek gibi: productName her zaman gramaj/miktar/hacim bilgisini içermelidir.
 
 Mevcut kategoriler (SADECE bu listeden seç, birebir aynı yaz): CATEGORY_NAMES
 
@@ -309,7 +311,10 @@ Kurallar:
 - Fiyatlar ondalık noktalı sayı (TL işareti yok), bulamazsan null
 - Tarih bulamazsan null (string "null" değil, gerçek null)
 - Tüm ürünleri dahil et, hiçbirini atlama
-- productName alanında broşürde ne yazıyorsa HARFİYEN yaz, kesinlikle matematiksel işlem yapma (örnek: "2*90 gr" yazıyorsa "180 gr" değil "2*90 gr" yaz)''';
+- productName alanında broşürde ne yazıyorsa HARFİYEN yaz, kesinlikle matematiksel işlem yapma (örnek: "2*90 gr" yazıyorsa "180 gr" değil "2*90 gr" yaz)
+- productName içine gramaj, miktar, hacim bilgilerini mutlaka dahil et (örnek: "100 g", "500 ml", "1 kg", "2 lt", "3x90 gr", "6x250 ml" gibi ifadeler ürün adının ayrılmaz parçasıdır, atlama)
+- Gramaj/miktar bilgisi ürün adının altında "•" veya ayrı satırda yazılmış olsa bile productName'e ekle (örnek: ürün adı "Jacobs Filtre Kahve", altında "• 250 g" yazıyorsa productName = "Jacobs Filtre Kahve 250 g")
+- Adet bilgisi varsa onu da ekle (örnek: "6x250 ml", "25 li paket", "3'lü")''';
 
       final finalPrompt = prompt.replaceFirst('CATEGORY_NAMES', categoryNames);
 
