@@ -24,6 +24,10 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
   // Aylık toplam reklam görüntüleme: key = "YYYY-MM"
   Map<String, int> _monthlyAdCounts = {};
 
+  // Firestore config/regions'tan yüklenir
+  Map<String, String> _ilceToIl = {};
+  Map<String, String> _cityNormalize = {};
+
   // Bugün ilk kez görülen şehirler (yeşil şehir adı)
   Set<String> _newCitiesToday     = {};
   // Bugün yeni tekil kullanıcı kazanılan şehirler (tekil tabloda yeşil sayı)
@@ -63,9 +67,32 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     return keys;
   }
 
+  // Ham city değerini normalize et: ilçe → il, yazım → standart
+  String _normalizeCity(String raw) {
+    final normalized = _cityNormalize[raw] ?? raw;
+    return _ilceToIl[normalized] ?? normalized;
+  }
+
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
+      // Bölge haritasını yükle (yoksa sessizce devam et)
+      try {
+        final regDoc = await FirebaseFirestore.instance
+            .collection('config').doc('regions').get();
+        final rd = regDoc.data();
+        if (rd != null) {
+          final ilce = rd['ilceToIl'] as Map<String, dynamic>?;
+          if (ilce != null) {
+            _ilceToIl = ilce.map((k, v) => MapEntry(k, v as String));
+          }
+          final norm = rd['cityNormalize'] as Map<String, dynamic>?;
+          if (norm != null) {
+            _cityNormalize = norm.map((k, v) => MapEntry(k, v as String));
+          }
+        }
+      } catch (_) {}
+
       final today        = DateTime.now();
       final todayStr     = _dateStr(today);
       final yesterday    = today.subtract(const Duration(days: 1));
@@ -171,7 +198,7 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
         int monthAds = 0;
         for (final doc in snap.docs) {
           final data = doc.data() as Map<String, dynamic>;
-          final city = (data['city'] as String?) ?? 'Bilinmiyor';
+          final city = _normalizeCity((data['city'] as String?) ?? 'Bilinmiyor');
           final uid  = data['uid'] as String?;
           citySessionMap[city] = (citySessionMap[city] ?? 0) + 1;
           monthAds += (data['adsWatched'] as num?)?.toInt() ?? 0;
