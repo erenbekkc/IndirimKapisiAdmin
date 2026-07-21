@@ -223,7 +223,7 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
       int todayAds = 0;
       for (final doc in todaySnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
-        final city = (data['city'] as String?) ?? 'Bilinmiyor';
+        final city = _normalizeCity((data['city'] as String?) ?? 'Bilinmiyor');
         final uid  = data['uid'] as String?;
         todayCitySession[city] = (todayCitySession[city] ?? 0) + 1;
         todayAds += (data['adsWatched'] as num?)?.toInt() ?? 0;

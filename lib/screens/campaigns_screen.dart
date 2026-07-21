@@ -504,7 +504,7 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
 
                 final all = snapshot.data!.docs;
                 final q = _searchQuery.trim().toLowerCase();
-                final docs = all.where((doc) {
+                var docs = all.where((doc) {
                   final data = doc.data() as Map<String, dynamic>;
                   final startDate = (data['startDate'] as Timestamp?)?.toDate();
                   final endDate = (data['endDate'] as Timestamp?)?.toDate();
@@ -526,6 +526,21 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                       return endDay != null && endDay.isBefore(today);
                   }
                 }).toList();
+
+                // Arama modunda aktif kampanyalar önce, süresi dolanlar sonda
+                if (q.isNotEmpty) {
+                  int _rank(doc) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final startDate = (data['startDate'] as Timestamp?)?.toDate();
+                    final endDate = (data['endDate'] as Timestamp?)?.toDate();
+                    final endDay = endDate != null ? DateTime(endDate.year, endDate.month, endDate.day) : null;
+                    if (endDay == null) return 1;
+                    if (endDay.isBefore(today)) return 2;           // süresi dolmuş
+                    if (startDate != null && startDate.isAfter(now)) return 1; // yakında
+                    return 0;                                        // aktif
+                  }
+                  docs.sort((a, b) => _rank(a).compareTo(_rank(b)));
+                }
 
                 if (docs.isEmpty) {
                   return Center(
