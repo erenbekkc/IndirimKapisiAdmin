@@ -999,6 +999,42 @@ Kurallar:
     if (selected.isEmpty) return;
 
     final col = FirebaseFirestore.instance.collection('catalog_drafts');
+
+    // Market/kategori ID'lerini kaydet öncesi çöz
+    final marketsSnap = await FirebaseFirestore.instance.collection('markets').get();
+    final catsSnap    = await FirebaseFirestore.instance.collection('categories').get();
+    String normMkt(String s) => s.toLowerCase().replaceAll(RegExp(r'[\s.\-_]'), '');
+    const mktAliases = <String, String>{
+      'money': 'migros', 'moneymigros': 'migros',
+      'carrfour': 'carrefour', 'carrefoursa': 'carrefour',
+      'sok': 'şok', 'sokmarket': 'şok',
+      'a101': 'a-101', 'bimeks': 'bim',
+    };
+    for (final item in selected) {
+      if (item.marketId.isEmpty && item.marketName.isNotEmpty) {
+        final norm = normMkt(item.marketName);
+        final aliasNorm = mktAliases[norm] ?? norm;
+        final match = marketsSnap.docs.where((d) {
+          final dbNorm = normMkt(d.get('name') as String);
+          return dbNorm == aliasNorm || dbNorm == norm ||
+                 (d.get('name') as String).toLowerCase().contains(aliasNorm);
+        }).firstOrNull;
+        if (match != null) {
+          item.marketId   = match.id;
+          item.marketName = match.get('name') as String;
+        }
+      }
+      if (item.categoryId.isEmpty && item.categoryName.isNotEmpty) {
+        final match = catsSnap.docs.where((d) =>
+          (d.get('name') as String).toLowerCase() == item.categoryName.toLowerCase()
+        ).firstOrNull;
+        if (match != null) {
+          item.categoryId   = match.id;
+          item.categoryName = match.get('name') as String;
+        }
+      }
+    }
+
     int saved = 0;
     for (final item in selected) {
       try {

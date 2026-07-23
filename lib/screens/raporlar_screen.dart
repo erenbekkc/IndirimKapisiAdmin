@@ -21,8 +21,8 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
   Map<String, int> _monthlySessionPages = {};
   Map<String, int> _monthlyUniquePages  = {};
 
-  // Aylık toplam reklam görüntüleme: key = "YYYY-MM"
-  Map<String, int> _monthlyAdCounts = {};
+  // Aylık gerçek tekil kullanıcı sayısı (uid bazlı, şehirden bağımsız)
+  Map<String, int> _monthlyTotalUnique = {};
 
   // Firestore config/regions'tan yüklenir
   Map<String, String> _ilceToIl = {};
@@ -184,51 +184,80 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
       }
 
       // Aylık şehir dağılımlarını işle (mevcut ay = dünkü verilere kadar)
-      final newSessionMaps      = <String, Map<String, int>>{};
-      final newUniqueMaps       = <String, Map<String, int>>{};
-      final newAdCounts         = <String, int>{};
-      final monthlyUidSets      = <String, Map<String, Set<String>>>{}; // birleştirme için
-      final historicalCities    = <String>{};
-      final historicalUidsByCity = <String, Set<String>>{};
+      final newSessionMaps        = <String, Map<String, int>>{};
+      final newUniqueMaps         = <String, Map<String, int>>{};
+      final newMonthlyTotalUnique = <String, int>{};
+      final monthlyUidSets        = <String, Map<String, Set<String>>>{}; // birleştirme için
+      final monthlyAllUidSets     = <String, Set<String>>{};             // gerçek tekil için
+      final historicalCities      = <String>{};
+      final historicalUidsByCity  = <String, Set<String>>{};
 
       for (int i = 0; i < monthKeys.length; i++) {
         final snap = results[4 + i] as QuerySnapshot;
-        final citySessionMap = <String, int>{};
-        final cityUidSets   = <String, Set<String>>{};
-        int monthAds = 0;
-        for (final doc in snap.docs) {
+        final citySessionMap  = <String, int>{};
+        final cityUidSets     = <String, Set<String>>{};
+        final monthAllUids    = <String>{};
+        // uid → ilk görüldüğü şehir (createdAt sırasına göre)
+        final uidFirstCity    = <String, String>{};
+        // createdAt'a göre sırala ki ilk şehri doğru tespit edelim
+        final docs = snap.docs.toList()
+          ..sort((a, b) {
+            final at = (a.data() as Map<String, dynamic>)['createdAt'];
+            final bt = (b.data() as Map<String, dynamic>)['createdAt'];
+            if (at == null || bt == null) return 0;
+            return (at as Timestamp).compareTo(bt as Timestamp);
+          });
+
+        for (final doc in docs) {
           final data = doc.data() as Map<String, dynamic>;
           final city = _normalizeCity((data['city'] as String?) ?? 'Bilinmiyor');
           final uid  = data['uid'] as String?;
           citySessionMap[city] = (citySessionMap[city] ?? 0) + 1;
-          monthAds += (data['adsWatched'] as num?)?.toInt() ?? 0;
           historicalCities.add(city);
           if (uid != null) {
-            cityUidSets.putIfAbsent(city, () => {}).add(uid);
+            monthAllUids.add(uid);
             historicalUidsByCity.putIfAbsent(city, () => {}).add(uid);
+            // uid'yi sadece ilk şehrine say
+            if (!uidFirstCity.containsKey(uid)) {
+              uidFirstCity[uid] = city;
+              cityUidSets.putIfAbsent(city, () => {}).add(uid);
+            }
           }
         }
         newSessionMaps[monthKeys[i]] = citySessionMap;
         newUniqueMaps[monthKeys[i]]  = Map.fromEntries(
           cityUidSets.entries.map((e) => MapEntry(e.key, e.value.length)),
         );
-        newAdCounts[monthKeys[i]]  = monthAds;
-        monthlyUidSets[monthKeys[i]] = cityUidSets;
+        monthlyUidSets[monthKeys[i]]        = cityUidSets;
+        monthlyAllUidSets[monthKeys[i]]     = monthAllUids;
+        newMonthlyTotalUnique[monthKeys[i]] = monthAllUids.length;
       }
 
       // Bugünün verilerini işle
       final todaySnap         = results[3] as QuerySnapshot;
       final todayCitySession  = <String, int>{};
       final todayCityUidSets  = <String, Set<String>>{};
-      int todayAds = 0;
-      for (final doc in todaySnap.docs) {
+      final todayAllUids      = <String>{};
+      final todayUidFirstCity = <String, String>{};
+      final todayDocs = todaySnap.docs.toList()
+        ..sort((a, b) {
+          final at = (a.data() as Map<String, dynamic>)['createdAt'];
+          final bt = (b.data() as Map<String, dynamic>)['createdAt'];
+          if (at == null || bt == null) return 0;
+          return (at as Timestamp).compareTo(bt as Timestamp);
+        });
+
+      for (final doc in todayDocs) {
         final data = doc.data() as Map<String, dynamic>;
         final city = _normalizeCity((data['city'] as String?) ?? 'Bilinmiyor');
         final uid  = data['uid'] as String?;
         todayCitySession[city] = (todayCitySession[city] ?? 0) + 1;
-        todayAds += (data['adsWatched'] as num?)?.toInt() ?? 0;
         if (uid != null) {
-          todayCityUidSets.putIfAbsent(city, () => {}).add(uid);
+          todayAllUids.add(uid);
+          if (!todayUidFirstCity.containsKey(uid)) {
+            todayUidFirstCity[uid] = city;
+            todayCityUidSets.putIfAbsent(city, () => {}).add(uid);
+          }
         }
       }
 
@@ -253,13 +282,15 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
       newSessionMaps[currentMonthKey] = curSession;
 
       final curUidSets = Map<String, Set<String>>.from(monthlyUidSets[currentMonthKey] ?? {});
+      final curAllUids = Set<String>.from(monthlyAllUidSets[currentMonthKey] ?? {});
       for (final e in todayCityUidSets.entries) {
         curUidSets.putIfAbsent(e.key, () => {}).addAll(e.value);
       }
+      curAllUids.addAll(todayAllUids);
       newUniqueMaps[currentMonthKey] = Map.fromEntries(
         curUidSets.entries.map((e) => MapEntry(e.key, e.value.length)),
       );
-      newAdCounts[currentMonthKey] = (newAdCounts[currentMonthKey] ?? 0) + todayAds;
+      newMonthlyTotalUnique[currentMonthKey] = curAllUids.length;
 
       // Günlük satırları oluştur
       final rows = <Map<String, dynamic>>[];
@@ -284,10 +315,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
             .toSet()
             .length;
 
-        int aAds = 0, iAds = 0;
-        for (final s in androidSess) aAds += (s['adsWatched'] as int?) ?? 0;
-        for (final s in iosSess)     iAds += (s['adsWatched'] as int?) ?? 0;
-
         // Bildirim gönderim: notification-messages koleksiyonundan kümülatif
         final androidSent = notifAndroidByDate[dates[i]] ?? 0;
         final iosSent     = notifIosByDate[dates[i]]     ?? 0;
@@ -304,10 +331,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
           'notifSent': notifSent,
           'androidNotifSent': androidSent,
           'iosNotifSent': iosSent,
-          'androidAds': aAds,
-          'iosAds': iAds,
-          'androidAvgAds': androidOpens > 0 ? aAds / androidOpens : 0.0,
-          'iosAvgAds': iosOpens > 0 ? iAds / iosOpens : 0.0,
         });
       }
 
@@ -315,7 +338,7 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
         _dailyData             = rows;
         _monthlySessionMaps    = newSessionMaps;
         _monthlyUniqueMaps     = newUniqueMaps;
-        _monthlyAdCounts       = newAdCounts;
+        _monthlyTotalUnique    = newMonthlyTotalUnique;
         _monthlySessionPages   = {};
         _monthlyUniquePages    = {};
         _newCitiesToday        = newCitiesToday;
@@ -434,14 +457,20 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
                           color: const Color(0xFF1E40AF),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Text(
-                          label,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.3,
-                          ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                label,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       if (uniqueMap.isNotEmpty) ...[
@@ -457,6 +486,7 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
                               (p) => setState(() => _monthlyUniquePages[key] = p),
                               newCities:      key == currentMonthKey ? _newCitiesToday      : const {},
                               newCountCities: key == currentMonthKey ? _newUniqueUserCities : const {},
+                              overrideTotal:  _monthlyTotalUnique[key],
                             ),
                           ),
                         ),
@@ -476,46 +506,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
                           ),
                         ),
                       ],
-                      // Aylık toplam reklam görüntüleme
-                      Builder(builder: (_) {
-                        final adCount = _monthlyAdCounts[key] ?? 0;
-                        if (adCount == 0) return const SizedBox.shrink();
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 16),
-                          child: Card(
-                            color: Colors.orange.shade50,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: BorderSide(color: Colors.orange.shade200),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.play_circle_outline,
-                                      color: Colors.orange.shade700, size: 20),
-                                  const SizedBox(width: 10),
-                                  const Expanded(
-                                    child: Text(
-                                      'Toplam Reklam Görüntüleme',
-                                      style: TextStyle(
-                                          fontSize: 13, fontWeight: FontWeight.w600),
-                                    ),
-                                  ),
-                                  Text(
-                                    adCount.toString(),
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.orange.shade800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
                     ];
                   }),
                 ],
@@ -548,11 +538,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     final notifSent     = row['notifSent']          as int;
     final androidSent   = row['androidNotifSent']   as int;
     final iosSent       = row['iosNotifSent']        as int;
-    final androidAds    = row['androidAds']          as int;
-    final iosAds        = row['iosAds']              as int;
-    final androidAvgAds = (row['androidAvgAds'] as num?)?.toDouble() ?? 0.0;
-    final iosAvgAds     = (row['iosAvgAds']     as num?)?.toDouble() ?? 0.0;
-
     if (_isRowEmpty(row)) return const SizedBox.shrink();
 
     return Card(
@@ -594,23 +579,6 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
               android: androidClicks,
               ios: iosClicks,
             ),
-            if (androidAds > 0 || iosAds > 0) ...[
-              const SizedBox(height: 4),
-              _statRow(
-                label: 'Reklam Görüntüleme',
-                total: androidAds + iosAds,
-                android: androidAds,
-                ios: iosAds,
-              ),
-              const SizedBox(height: 4),
-              _durationRow(
-                label: 'Ort. Reklam/Oturum',
-                androidSecs: 0,
-                iosSecs: 0,
-                androidText: androidAvgAds > 0 ? androidAvgAds.toStringAsFixed(1) : '-',
-                iosText: iosAvgAds > 0 ? iosAvgAds.toStringAsFixed(1) : '-',
-              ),
-            ],
           ],
         ),
       ),
@@ -638,34 +606,15 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     );
   }
 
-  Widget _durationRow({
-    required String label,
-    required int androidSecs,
-    required int iosSecs,
-    String? androidText,
-    String? iosText,
-  }) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(label,
-              style: const TextStyle(fontSize: 12, color: Colors.black87)),
-        ),
-        _chipText('Android', androidText ?? _formatDur(androidSecs), Colors.green.shade700),
-        const SizedBox(width: 4),
-        _chipText('iOS', iosText ?? _formatDur(iosSecs), Colors.blue.shade700),
-      ],
-    );
-  }
-
   Widget _buildCitySection(
     Map<String, int> cityMap,
     int page,
     void Function(int) onPageChange, {
-    Set<String> newCities     = const {},
+    Set<String> newCities      = const {},
     Set<String> newCountCities = const {},
+    int? overrideTotal,
   }) {
-    final grandTotal = cityMap.values.fold(0, (a, b) => a + b);
+    final grandTotal = overrideTotal ?? cityMap.values.fold<int>(0, (a, b) => a + b);
     final sorted     = cityMap.entries.toList()
       ..sort((a, b) => b.value != a.value
           ? b.value.compareTo(a.value)
@@ -786,26 +735,4 @@ class _RaporlarScreenState extends State<RaporlarScreen> {
     );
   }
 
-  Widget _chipText(String label, String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        '$label: $text',
-        style: TextStyle(
-            fontSize: 11, fontWeight: FontWeight.w600, color: color),
-      ),
-    );
-  }
-
-  String _formatDur(int secs) {
-    if (secs <= 0) return '-';
-    if (secs < 60) return '${secs}sn';
-    final m = secs ~/ 60;
-    final s = secs % 60;
-    return s > 0 ? '${m}dk ${s}sn' : '${m}dk';
-  }
 }
